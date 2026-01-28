@@ -11,7 +11,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/parvaizahmad/vwire.git"
+    "url": "https://github.com/vwireiot/vwire-arduino.git"
   },
   "homepage": "https://vwireiot.com",
   "license": "MIT",

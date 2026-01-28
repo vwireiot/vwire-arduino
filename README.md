@@ -3,7 +3,7 @@
 Professional IoT platform library for Arduino, ESP32, ESP8266 and compatible boards.  
 Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 
-[![Version](https://img.shields.io/badge/version-3.1.0-blue.svg)](https://github.com/parvaizahmad/vwire)
+[![Version](https://img.shields.io/badge/version-3.1.0-blue.svg)](https://github.com/vwireiot/vwire-arduino)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 🌐 **Cloud Portal**: [https://vwire.io](https://vwire.io)
@@ -56,7 +56,7 @@ Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 
 ### Arduino IDE
 
-1. Download this library as ZIP from [GitHub](https://github.com/parvaizahmad/vwire)
+1. Download this library as ZIP from [GitHub](https://github.com/vwireiot/vwire-arduino)
 2. Go to **Sketch → Include Library → Add .ZIP Library**
 3. Select the downloaded ZIP file
 4. Install dependencies: `PubSubClient` and `ArduinoJson` from Library Manager
@@ -1048,7 +1048,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 - 🌐 **Cloud Portal**: [https://vwire.io](https://vwire.io)
 - 📖 **Documentation**: [https://vwire.io/docs](https://vwire.io/docs)
-- 🐛 **Issues**: [https://github.com/parvaizahmad/vwire/issues](https://github.com/parvaizahmad/vwire/issues)
+- 🐛 **Issues**: [https://github.com/vwireiot/vwire-arduino/issues](https://github.com/vwireiot/vwire-arduino/issues)
 - 📧 **Email**: support@vwire.io
 
 ---
