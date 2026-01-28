@@ -1,0 +1,34 @@
+{
+  "name": "VwireIOT",
+  "version": "3.0.0",
+  "description": "Professional IoT platform library for Arduino, ESP32, ESP8266 and compatible boards. Connect to Vwire IOT cloud via MQTT with TLS encryption support.",
+  "keywords": ["iot", "mqtt", "esp32", "esp8266", "dashboard", "cloud", "ssl", "tls", "vwire", "arduino"],
+  "authors": [
+    {
+      "name": "Vwire IOT Team",
+      "email": "support@vwireiot.com"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/parvaizahmad/vwire.git"
+  },
+  "homepage": "https://vwireiot.com",
+  "license": "MIT",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32", "espressif8266", "atmelavr", "atmelsam", "raspberrypi"],
+  "dependencies": {
+    "knolleary/PubSubClient": "^2.8",
+    "bblanchon/ArduinoJson": "^6.21.0"
+  },
+  "export": {
+    "include": [
+      "src/*",
+      "examples/*",
+      "library.properties",
+      "keywords.txt",
+      "README.md",
+      "LICENSE"
+    ]
+  }
+}
