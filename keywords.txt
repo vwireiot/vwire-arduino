@@ -13,6 +13,11 @@ VwireClass	KEYWORD1
 VwireState	KEYWORD1
 VwireError	KEYWORD1
 VwireTransport	KEYWORD1
+VwireProvision	KEYWORD1
+VwireProvisioningClass	KEYWORD1
+VwireProvisioningState	KEYWORD1
+VwireProvisioningMethod	KEYWORD1
+VwireCredentials	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
@@ -52,6 +57,26 @@ getWiFiRSSI	KEYWORD2
 printDebugInfo	KEYWORD2
 syncVirtual	KEYWORD2
 syncAll	KEYWORD2
+
+# Provisioning Methods
+hasCredentials	KEYWORD2
+loadCredentials	KEYWORD2
+saveCredentials	KEYWORD2
+clearCredentials	KEYWORD2
+getSSID	KEYWORD2
+getPassword	KEYWORD2
+getAuthToken	KEYWORD2
+startSmartConfig	KEYWORD2
+stopSmartConfig	KEYWORD2
+startAPMode	KEYWORD2
+stopAPMode	KEYWORD2
+getAPSSID	KEYWORD2
+getAPIP	KEYWORD2
+isProvisioning	KEYWORD2
+getMethod	KEYWORD2
+onStateChange	KEYWORD2
+onCredentialsReceived	KEYWORD2
+onProgress	KEYWORD2
 
 # VirtualPin Methods
 asInt	KEYWORD2
@@ -97,6 +122,24 @@ VWIRE_ERR_SSL_FAILED	LITERAL1
 # Board Names
 VWIRE_BOARD_NAME	LITERAL1
 VWIRE_VERSION	LITERAL1
+
+# Provisioning States
+VWIRE_PROV_IDLE	LITERAL1
+VWIRE_PROV_SMARTCONFIG_WAIT	LITERAL1
+VWIRE_PROV_AP_ACTIVE	LITERAL1
+VWIRE_PROV_CONNECTING	LITERAL1
+VWIRE_PROV_SUCCESS	LITERAL1
+VWIRE_PROV_FAILED	LITERAL1
+VWIRE_PROV_TIMEOUT	LITERAL1
+
+# Provisioning Methods
+VWIRE_PROV_METHOD_NONE	LITERAL1
+VWIRE_PROV_METHOD_SMARTCONFIG	LITERAL1
+VWIRE_PROV_METHOD_AP	LITERAL1
+
+# Feature Flags
+VWIRE_HAS_SMARTCONFIG	LITERAL1
+VWIRE_HAS_AP_PROVISIONING	LITERAL1
 
 #######################################
 # Macros (KEYWORD3)
