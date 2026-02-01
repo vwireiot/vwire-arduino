@@ -1,8 +1,8 @@
 /*
  * Vwire IOT Arduino Library - WiFi Provisioning Implementation
- * 
- * Implements SmartConfig and AP Mode provisioning for ESP32/ESP8266.
- * 
+ *
+ * Implements AP Mode provisioning for ESP32/ESP8266.
+ *
  * Copyright (c) 2026 Vwire IOT
  * Website: https://vwire.io
  * MIT License
@@ -10,6 +10,7 @@
 
 #include "VwireProvisioning.h"
 #include <stdarg.h>
+#include <ArduinoJson.h>
 
 // =============================================================================
 // GLOBAL INSTANCE
@@ -246,6 +247,8 @@ VwireProvisioningClass::VwireProvisioningClass()
   , _debugStream(&Serial)
   #if VWIRE_HAS_AP_PROVISIONING
   , _webServer(nullptr)
+  , _pendingStopAP(false)
+  , _pendingConnect(false)
   #endif
 {
   memset(&_credentials, 0, sizeof(_credentials));
@@ -433,123 +436,8 @@ bool VwireProvisioningClass::_clearStorage() { return true; }
 #endif
 
 // =============================================================================
-// SMARTCONFIG PROVISIONING
+// AP MODE PROVISIONING
 // =============================================================================
-#if VWIRE_HAS_SMARTCONFIG
-
-bool VwireProvisioningClass::startSmartConfig(unsigned long timeout) {
-  // Stop any existing provisioning
-  stop();
-  
-  _debugPrint("[Provision] Starting SmartConfig...");
-  _debugPrint("[Provision] Put device in SmartConfig mode on mobile app");
-  
-  // Disconnect WiFi and set to station mode
-  WiFi.disconnect(true);
-  delay(100);
-  WiFi.mode(WIFI_STA);
-  delay(100);
-  
-  // Start SmartConfig with ESP-Touch protocol
-  #if defined(VWIRE_BOARD_ESP32)
-  // ESP32 SmartConfig with ESP-Touch V2 (supports custom data for token)
-  WiFi.beginSmartConfig(SC_TYPE_ESPTOUCH_V2);
-  #else
-  // ESP8266 standard SmartConfig
-  WiFi.beginSmartConfig();
-  #endif
-  
-  _state = VWIRE_PROV_SMARTCONFIG_WAIT;
-  _method = VWIRE_PROV_METHOD_SMARTCONFIG;
-  _startTime = millis();
-  _timeout = timeout;
-  
-  _setState(VWIRE_PROV_SMARTCONFIG_WAIT);
-  
-  return true;
-}
-
-void VwireProvisioningClass::stopSmartConfig() {
-  if (_method == VWIRE_PROV_METHOD_SMARTCONFIG) {
-    WiFi.stopSmartConfig();
-    _state = VWIRE_PROV_IDLE;
-    _method = VWIRE_PROV_METHOD_NONE;
-    _debugPrint("[Provision] SmartConfig stopped");
-  }
-}
-
-void VwireProvisioningClass::_processSmartConfig() {
-  // Check for timeout
-  if (_timeout > 0 && (millis() - _startTime) >= _timeout) {
-    _debugPrint("[Provision] SmartConfig timeout!");
-    stopSmartConfig();
-    _setState(VWIRE_PROV_TIMEOUT);
-    return;
-  }
-  
-  // Report progress based on time
-  if (_progressCallback && _timeout > 0) {
-    int progress = ((millis() - _startTime) * 100) / _timeout;
-    _progressCallback(min(progress, 99));
-  }
-  
-  // Check if SmartConfig received data
-  if (WiFi.smartConfigDone()) {
-    _debugPrint("[Provision] SmartConfig received credentials!");
-    
-    // Get SSID and password
-    String ssid = WiFi.SSID();
-    String password = WiFi.psk();
-    String token = "";
-    
-    #if defined(VWIRE_BOARD_ESP32)
-    // ESP32: Get custom data (device token) from ESP-Touch V2
-    uint8_t rvd_data[128] = {0};
-    if (esp_smartconfig_get_rvd_data(rvd_data, sizeof(rvd_data)) == ESP_OK) {
-      token = String((char*)rvd_data);
-      _debugPrintf("[Provision] Received token via SmartConfig: %s", token.c_str());
-    }
-    #endif
-    
-    // If no token via SmartConfig, it might come separately
-    // For ESP8266 or fallback, token must be provided via other means
-    
-    _debugPrintf("[Provision] SSID: %s", ssid.c_str());
-    _debugPrint("[Provision] Password: [hidden]");
-    
-    // Stop SmartConfig
-    WiFi.stopSmartConfig();
-    
-    // Store credentials temporarily (will save after WiFi confirms)
-    strncpy(_credentials.ssid, ssid.c_str(), VWIRE_PROV_MAX_SSID_LEN - 1);
-    strncpy(_credentials.password, password.c_str(), VWIRE_PROV_MAX_PASS_LEN - 1);
-    if (token.length() > 0) {
-      strncpy(_credentials.authToken, token.c_str(), VWIRE_PROV_MAX_TOKEN_LEN - 1);
-    }
-    
-    // Call credentials callback
-    if (_credentialsCallback) {
-      _credentialsCallback(_credentials.ssid, _credentials.password, _credentials.authToken);
-    }
-    
-    // Try to connect
-    _setState(VWIRE_PROV_CONNECTING);
-    
-    if (_connectToWiFi()) {
-      // Save credentials permanently
-      saveCredentials(_credentials.ssid, _credentials.password, _credentials.authToken);
-      _setState(VWIRE_PROV_SUCCESS);
-      _debugPrint("[Provision] SmartConfig provisioning successful!");
-    } else {
-      _setState(VWIRE_PROV_FAILED);
-      _debugPrint("[Provision] SmartConfig failed - could not connect to WiFi");
-    }
-    
-    _method = VWIRE_PROV_METHOD_NONE;
-  }
-}
-
-#endif // VWIRE_HAS_SMARTCONFIG
 
 // =============================================================================
 // AP MODE PROVISIONING
@@ -589,7 +477,7 @@ bool VwireProvisioningClass::startAPMode(const char* apSSID, const char* apPassw
   
   // Start AP
   bool started;
-  if (strlen(apPassword) >= 8) {
+  if (apPassword && strlen(apPassword) >= 8) {
     started = WiFi.softAP(apSSID, apPassword);
     _debugPrintf("[Provision] AP started with password");
   } else {
@@ -656,6 +544,16 @@ void VwireProvisioningClass::_setupAPWebServer() {
   _webServer->on("/", HTTP_GET, [this]() { this->_handleRoot(); });
   _webServer->on("/config", HTTP_POST, [this]() { this->_handleConfig(); });
   _webServer->on("/status", HTTP_GET, [this]() { this->_handleStatus(); });
+    // Handshake endpoint: app checks if device is ready
+    _webServer->on("/handshake", HTTP_GET, [this]() {
+      _webServer->send(200, "application/json", "{\"status\":\"ready\"}");
+    });
+
+    // Confirmation endpoint: app polls until credentials are received
+    _webServer->on("/confirm", HTTP_GET, [this]() {
+      bool received = _credentialsLoaded; // or use a more robust flag if needed
+      _webServer->send(200, "application/json", String("{\"received\":") + (received ? "true" : "false") + "}");
+    });
   _webServer->onNotFound([this]() { this->_handleNotFound(); });
   
   _webServer->begin();
@@ -672,21 +570,42 @@ void VwireProvisioningClass::_handleRoot() {
 void VwireProvisioningClass::_handleConfig() {
   _debugPrint("[Provision] Received configuration request");
   
-  // Check required parameters
-  if (!_webServer->hasArg("ssid") || !_webServer->hasArg("token")) {
-    _webServer->send(400, "application/json", "{\"success\":false,\"error\":\"Missing required parameters\"}");
-    return;
+  // Extract credentials. Prefer form-encoded fields, but fall back to JSON body.
+  String ssid;
+  String password;
+  String token;
+
+  if (_webServer->hasArg("ssid") || _webServer->hasArg("token")) {
+    // Form-encoded or query params
+    ssid = _webServer->arg("ssid");
+    password = _webServer->arg("password");
+    token = _webServer->arg("token");
+  } else {
+    // Try parse JSON body (support both {ssid,password,token} and {wifi_ssid,wifi_pass,token})
+    String body = _webServer->arg("plain");
+    if (body.length() > 0) {
+      DynamicJsonDocument doc(1024);
+      DeserializationError err = deserializeJson(doc, body);
+      if (!err) {
+        if (doc.containsKey("ssid")) ssid = String((const char*)doc["ssid"]);
+        else if (doc.containsKey("wifi_ssid")) ssid = String((const char*)doc["wifi_ssid"]);
+
+        if (doc.containsKey("password")) password = String((const char*)doc["password"]);
+        else if (doc.containsKey("wifi_pass")) password = String((const char*)doc["wifi_pass"]);
+
+        if (doc.containsKey("token")) token = String((const char*)doc["token"]);
+      } else {
+        _webServer->send(400, "application/json", "{\"success\":false,\"error\":\"Invalid JSON body\"}");
+        return;
+      }
+    }
   }
-  
-  String ssid = _webServer->arg("ssid");
-  String password = _webServer->arg("password");
-  String token = _webServer->arg("token");
   
   if (ssid.length() == 0) {
     _webServer->send(400, "application/json", "{\"success\":false,\"error\":\"SSID is required\"}");
     return;
   }
-  
+
   if (token.length() == 0) {
     _webServer->send(400, "application/json", "{\"success\":false,\"error\":\"Device token is required\"}");
     return;
@@ -699,32 +618,19 @@ void VwireProvisioningClass::_handleConfig() {
     _webServer->send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save credentials\"}");
     return;
   }
-  
+
+  // Mark handshake confirmation
+  _handshakeConfirmed = true;
+
   // Send success response
   _webServer->send(200, "application/json", "{\"success\":true,\"message\":\"Configuration saved\"}");
-  
+
   // Call credentials callback
   if (_credentialsCallback) {
     _credentialsCallback(_credentials.ssid, _credentials.password, _credentials.authToken);
   }
-  
-  // Stop AP and try to connect
-  delay(500);  // Give time for response to be sent
-  
-  stopAPMode();
-  
-  _setState(VWIRE_PROV_CONNECTING);
-  
-  // Try to connect to WiFi
-  WiFi.mode(WIFI_STA);
-  
-  if (_connectToWiFi()) {
-    _setState(VWIRE_PROV_SUCCESS);
-    _debugPrint("[Provision] AP Mode provisioning successful!");
-  } else {
-    _setState(VWIRE_PROV_FAILED);
-    _debugPrint("[Provision] AP Mode failed - could not connect to WiFi");
-  }
+
+  // Do NOT stop AP or connect yet; wait for explicit confirmation from app
 }
 
 void VwireProvisioningClass::_handleStatus() {
@@ -748,16 +654,25 @@ void VwireProvisioningClass::_handleNotFound() {
 // =============================================================================
 
 void VwireProvisioningClass::run() {
-  #if VWIRE_HAS_SMARTCONFIG
-  if (_method == VWIRE_PROV_METHOD_SMARTCONFIG) {
-    _processSmartConfig();
-  }
-  #endif
-  
   #if VWIRE_HAS_AP_PROVISIONING
   if (_method == VWIRE_PROV_METHOD_AP && _webServer) {
     _webServer->handleClient();
     
+    // Only proceed to stop AP and connect after handshake confirmation
+    if (_handshakeConfirmed) {
+      stopAPMode();
+      WiFi.mode(WIFI_STA);
+      delay(500);
+      if (_connectToWiFi()) {
+        _setState(VWIRE_PROV_SUCCESS);
+        _debugPrint("[Provision] AP Mode provisioning successful!");
+      } else {
+        _setState(VWIRE_PROV_FAILED);
+        _debugPrint("[Provision] AP Mode failed - could not connect to WiFi");
+      }
+      _handshakeConfirmed = false; // reset for next provisioning
+    }
+
     // Check for timeout
     if (_timeout > 0 && (millis() - _startTime) >= _timeout) {
       _debugPrint("[Provision] AP Mode timeout!");
@@ -769,12 +684,6 @@ void VwireProvisioningClass::run() {
 }
 
 void VwireProvisioningClass::stop() {
-  #if VWIRE_HAS_SMARTCONFIG
-  if (_method == VWIRE_PROV_METHOD_SMARTCONFIG) {
-    stopSmartConfig();
-  }
-  #endif
-  
   #if VWIRE_HAS_AP_PROVISIONING
   if (_method == VWIRE_PROV_METHOD_AP) {
     stopAPMode();
@@ -794,8 +703,7 @@ VwireProvisioningMethod VwireProvisioningClass::getMethod() {
 }
 
 bool VwireProvisioningClass::isProvisioning() {
-  return _state == VWIRE_PROV_SMARTCONFIG_WAIT || 
-         _state == VWIRE_PROV_AP_ACTIVE ||
+  return _state == VWIRE_PROV_AP_ACTIVE ||
          _state == VWIRE_PROV_CONNECTING;
 }
 

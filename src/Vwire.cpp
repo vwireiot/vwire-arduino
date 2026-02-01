@@ -109,6 +109,14 @@ void VwireClass::config(const VwireSettings& settings) {
   _deviceId[VWIRE_MAX_TOKEN_LENGTH - 1] = '\0';
 }
 
+void VwireClass::setDeviceId(const char* deviceId) {
+  if (deviceId && strlen(deviceId) > 0) {
+    strncpy(_deviceId, deviceId, VWIRE_MAX_TOKEN_LENGTH - 1);
+    _deviceId[VWIRE_MAX_TOKEN_LENGTH - 1] = '\0';
+    _debugPrintf("[Vwire] Custom device ID set: %s", _deviceId);
+  }
+}
+
 void VwireClass::setTransport(VwireTransport transport) {
   _settings.transport = transport;
   _debugPrintf("[Vwire] Transport set to: %s", 
@@ -695,11 +703,15 @@ void VwireClass::_sendHeartbeat() {
   
   // Use stack buffers to avoid heap allocation
   char topic[96];
-  char buffer[96];
+  char buffer[192];
+  
+  // Get IP address string
+  String ipStr = WiFi.localIP().toString();
   
   snprintf(topic, sizeof(topic), "vwire/%s/heartbeat", _deviceId);
-  snprintf(buffer, sizeof(buffer), "{\"uptime\":%lu,\"heap\":%lu,\"rssi\":%d}",
-           getUptime(), getFreeHeap(), getWiFiRSSI());
+  snprintf(buffer, sizeof(buffer), 
+    "{\"uptime\":%lu,\"heap\":%lu,\"rssi\":%d,\"ip\":\"%s\",\"fw\":\"%s\"}",
+    getUptime(), getFreeHeap(), getWiFiRSSI(), ipStr.c_str(), VWIRE_VERSION);
   
   _mqttClient.publish(topic, buffer);
 }

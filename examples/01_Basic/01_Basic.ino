@@ -83,7 +83,7 @@ VWIRE_CONNECTED() {
   Serial.println("✓ Connected to Vwire IOT!");
   
   // Request stored values from server (useful after power cycle)
-  Vwire.syncVirtual(V0);  // Sync LED state
+  Vwire.sync(V0);  // Sync LED state
   
   // Or sync multiple pins at once:
   // Vwire.sync(V0, V1, V2);

@@ -114,7 +114,7 @@ VWIRE_CONNECTED() {
   digitalWrite(LED_BUILTIN, HIGH);
   
   // Sync virtual pins to get current state from server
-  Vwire.virtualSync(V0);
+  Vwire.syncVirtual(V0);
 }
 
 VWIRE_DISCONNECTED() {
@@ -142,7 +142,7 @@ void onProvisioningState(VwireProvisioningState state) {
       if (AP_PASSWORD) {
         Serial.printf("   Password: %s\n", AP_PASSWORD);
       }
-      Serial.printf("2. Open: http://%s\n", VwireProvision.getAPIP().toString().c_str());
+      Serial.printf("2. Open: http://%s\n", VwireProvision.getAPIP().c_str());
       Serial.println("========================================\n");
       ledBlinkInterval = BLINK_AP_MODE;
       break;

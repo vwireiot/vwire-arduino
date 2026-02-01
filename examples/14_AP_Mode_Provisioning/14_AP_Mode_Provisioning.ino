@@ -47,7 +47,7 @@
 #define BUTTON_HOLD_TIME 5000  // Hold for 5 seconds to reset
 
 // AP Mode settings
-#define AP_PASSWORD "vwire123"  // Set to nullptr for open network
+#define AP_PASSWORD ""  // Empty string for open network (or use nullptr)
 #define AP_TIMEOUT 300000       // 5 minutes timeout
 
 // =============================================================================
@@ -86,7 +86,7 @@ VWIRE_CONNECTED() {
   digitalWrite(LED_BUILTIN, HIGH);
   
   // Sync current state
-  Vwire.virtualSync(V0);
+  Vwire.syncVirtual(V0);
 }
 
 VWIRE_DISCONNECTED() {
@@ -109,7 +109,7 @@ void onProvisioningState(VwireProvisioningState state) {
       } else {
         Serial.println("   (Open network - no password)");
       }
-      Serial.printf("2. Open browser: http://%s\n", VwireProvision.getAPIP().toString().c_str());
+      Serial.printf("2. Open browser: http://%s\n", VwireProvision.getAPIP().c_str());
       Serial.println("3. Enter your WiFi credentials and device token\n");
       ledBlinkInterval = 1000;  // Slow blink = AP active
       break;

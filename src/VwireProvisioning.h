@@ -1,22 +1,21 @@
 /*
  * Vwire IOT Arduino Library - WiFi Provisioning
- * 
+ *
  * Provides WiFi provisioning support for ESP32 and ESP8266 devices:
- * - SmartConfig (ESP-Touch): Receive WiFi credentials + device token from mobile app
  * - AP Mode: Device creates hotspot, user connects and sends configuration
- * 
- * Both methods receive:
+ *
+ * Receives:
  * - WiFi SSID and password
  * - Device authentication token (from Vwire dashboard)
- * 
+ *
  * Usage:
  *   #include <VwireProvisioning.h>
- *   
+ *
  *   // In setup():
  *   if (!VwireProvision.hasCredentials()) {
- *     VwireProvision.startSmartConfig();  // or startAPMode()
+ *     VwireProvision.startAPMode();
  *   }
- * 
+ *
  * Copyright (c) 2026 Vwire IOT
  * Website: https://vwire.io
  * MIT License
@@ -27,13 +26,6 @@
 
 #include <Arduino.h>
 #include "VwireConfig.h"
-
-// SmartConfig is only available on ESP32 and ESP8266
-#if defined(VWIRE_BOARD_ESP32) || defined(VWIRE_BOARD_ESP8266)
-  #define VWIRE_HAS_SMARTCONFIG 1
-#else
-  #define VWIRE_HAS_SMARTCONFIG 0
-#endif
 
 // AP Mode provisioning available on all WiFi boards
 #if VWIRE_HAS_WIFI
@@ -46,7 +38,6 @@
   #include <WiFi.h>
   #include <WebServer.h>
   #include <Preferences.h>
-  #include <esp_smartconfig.h>
 #elif defined(VWIRE_BOARD_ESP8266)
   #include <ESP8266WiFi.h>
   #include <ESP8266WebServer.h>
@@ -67,10 +58,7 @@
 #define VWIRE_PROV_MAX_TOKEN_LEN 64
 
 /** @brief Default AP SSID prefix */
-#define VWIRE_PROV_AP_PREFIX "VWire_Setup_"
-
-/** @brief Default SmartConfig timeout (ms) */
-#define VWIRE_PROV_SMARTCONFIG_TIMEOUT 120000  // 2 minutes
+#define VWIRE_PROV_AP_PREFIX "VWire Device "
 
 /** @brief Default AP Mode timeout (ms, 0 = no timeout) */
 #define VWIRE_PROV_AP_TIMEOUT 0
@@ -88,7 +76,7 @@
 #define VWIRE_PROV_EEPROM_SIZE 256
 
 /** @brief Magic value to validate stored credentials */
-#define VWIRE_PROV_MAGIC 0xVW10
+#define VWIRE_PROV_MAGIC 0x5710
 
 // =============================================================================
 // PROVISIONING STATE
@@ -99,7 +87,6 @@
  */
 typedef enum {
   VWIRE_PROV_IDLE = 0,           ///< Not provisioning
-  VWIRE_PROV_SMARTCONFIG_WAIT,   ///< Waiting for SmartConfig data
   VWIRE_PROV_AP_ACTIVE,          ///< AP Mode active, waiting for config
   VWIRE_PROV_CONNECTING,         ///< Received credentials, connecting to WiFi
   VWIRE_PROV_SUCCESS,            ///< Provisioning successful
@@ -112,7 +99,6 @@ typedef enum {
  */
 typedef enum {
   VWIRE_PROV_METHOD_NONE = 0,
-  VWIRE_PROV_METHOD_SMARTCONFIG,
   VWIRE_PROV_METHOD_AP
 } VwireProvisioningMethod;
 
@@ -126,7 +112,7 @@ typedef void (*ProvisioningStateCallback)(VwireProvisioningState state);
 /** @brief Callback when credentials are received */
 typedef void (*CredentialsReceivedCallback)(const char* ssid, const char* password, const char* token);
 
-/** @brief Callback for provisioning progress (SmartConfig) */
+/** @brief Callback for provisioning progress */
 typedef void (*ProvisioningProgressCallback)(int progress);
 
 // =============================================================================
@@ -166,26 +152,21 @@ struct VwireCredentials {
 
 /**
  * @brief WiFi provisioning manager for Vwire IOT devices
- * 
- * Supports two provisioning methods:
- * 
- * 1. SmartConfig (ESP-Touch):
- *    - Device listens for encoded WiFi packets from mobile app
- *    - Receives SSID, password, and device token
- *    - No user interaction needed on device
- * 
- * 2. AP Mode:
- *    - Device creates WiFi hotspot "VWire_Setup_XXXX"
- *    - User connects phone to hotspot
- *    - Mobile app sends configuration via HTTP
- * 
+ *
+ * Supports AP Mode provisioning:
+ *
+ * - AP Mode:
+ *   - Device creates WiFi hotspot "VWire_Setup_XXXX"
+ *   - User connects phone to hotspot
+ *   - Mobile app sends configuration via HTTP
+ *
  * Credentials are stored persistently and can be retrieved for Vwire connection.
- * 
+ *
  * @code
  * // Example usage
  * void setup() {
  *   Serial.begin(115200);
- *   
+ *
  *   // Check if we have stored credentials
  *   if (VwireProvision.hasCredentials()) {
  *     // Use stored credentials
@@ -193,13 +174,13 @@ struct VwireCredentials {
  *     Vwire.begin(VwireProvision.getSSID(), VwireProvision.getPassword());
  *   } else {
  *     // Start provisioning
- *     VwireProvision.startSmartConfig();  // or startAPMode()
- *     
+ *     VwireProvision.startAPMode();
+ *
  *     while (VwireProvision.getState() != VWIRE_PROV_SUCCESS) {
  *       VwireProvision.run();
  *       delay(100);
  *     }
- *     
+ *
  *     // Provisioning complete, restart or continue
  *     ESP.restart();
  *   }
@@ -264,44 +245,22 @@ public:
   const char* getAuthToken();
   
   // =========================================================================
-  // SMARTCONFIG PROVISIONING
-  // =========================================================================
-  
-  #if VWIRE_HAS_SMARTCONFIG
-  /**
-   * @brief Start SmartConfig provisioning
-   * 
-   * Puts device in SmartConfig mode to receive WiFi credentials
-   * and device token from the Vwire mobile app.
-   * 
-   * @param timeout Timeout in milliseconds (default: 120000 = 2 min)
-   * @return true if started successfully
-   */
-  bool startSmartConfig(unsigned long timeout = VWIRE_PROV_SMARTCONFIG_TIMEOUT);
-  
-  /**
-   * @brief Stop SmartConfig provisioning
-   */
-  void stopSmartConfig();
-  #endif
-  
-  // =========================================================================
   // AP MODE PROVISIONING
   // =========================================================================
-  
+
   #if VWIRE_HAS_AP_PROVISIONING
   /**
    * @brief Start AP Mode provisioning
-   * 
+   *
    * Creates WiFi hotspot "VWire_Setup_XXXX" (XXXX = chip ID).
    * User connects to this network and opens mobile app to configure.
-   * 
+   *
    * @param apPassword Optional AP password (empty = open network)
    * @param timeout Timeout in milliseconds (0 = no timeout)
    * @return true if started successfully
    */
   bool startAPMode(const char* apPassword = "", unsigned long timeout = VWIRE_PROV_AP_TIMEOUT);
-  
+
   /**
    * @brief Start AP Mode with custom AP name
    * @param apSSID Custom AP SSID
@@ -310,18 +269,18 @@ public:
    * @return true if started successfully
    */
   bool startAPMode(const char* apSSID, const char* apPassword, unsigned long timeout);
-  
+
   /**
    * @brief Stop AP Mode provisioning
    */
   void stopAPMode();
-  
+
   /**
    * @brief Get AP Mode SSID (for display)
    * @return AP SSID string
    */
   const char* getAPSSID();
-  
+
   /**
    * @brief Get device's IP address in AP mode
    * @return IP address string
@@ -406,6 +365,7 @@ private:
   VwireProvisioningMethod _method;
   VwireCredentials _credentials;
   bool _credentialsLoaded;
+  bool _handshakeConfirmed = false; // handshake protocol flag
   
   // Timeouts
   unsigned long _startTime;
@@ -434,12 +394,11 @@ private:
   void _handleStatus();
   void _handleNotFound();
   static VwireProvisioningClass* _instance;
+  bool _pendingStopAP;
+  bool _pendingConnect;
   #endif
   
-  // SmartConfig
-  #if VWIRE_HAS_SMARTCONFIG
-  void _processSmartConfig();
-  #endif
+  // SmartConfig removed
   
   // Internal helpers
   void _setState(VwireProvisioningState state);

@@ -459,7 +459,7 @@ VwireProvision.startAPMode(nullptr, 300000);
 
 // Get AP info for display
 Serial.printf("Connect to: %s\n", VwireProvision.getAPSSID());
-Serial.printf("Open: http://%s\n", VwireProvision.getAPIP().toString().c_str());
+Serial.printf("Open: http://%s\n", VwireProvision.getAPIP().c_str());
 ```
 
 #### Provisioning States

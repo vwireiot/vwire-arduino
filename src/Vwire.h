@@ -505,6 +505,18 @@ public:
    * @param settings VwireSettings structure with all options
    */
   void config(const VwireSettings& settings);
+
+  /**
+   * @brief Set custom device ID (for OEM pre-provisioned devices)
+   * 
+   * By default, the library uses the auth token as the device ID.
+   * For OEM devices with pre-provisioned IDs from the admin panel,
+   * use this method to set the custom device ID.
+   * 
+   * @param deviceId Custom device ID from admin panel (e.g., "VW-ABC123")
+   * @note Call this after config() and before begin()
+   */
+  void setDeviceId(const char* deviceId);
   
   /**
    * @brief Set transport protocol
