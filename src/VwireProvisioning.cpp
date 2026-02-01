@@ -204,8 +204,7 @@ bool VwireProvisioningClass::hasCredentials() {
   if (!_credentialsLoaded) {
     loadCredentials();
   }
-  // Check if we have WiFi credentials (token is optional for OEM mode)
-  return _credentials.isValid() && strlen(_credentials.ssid) > 0;
+  return _credentials.isValid();
 }
 
 bool VwireProvisioningClass::loadCredentials() {
@@ -214,19 +213,44 @@ bool VwireProvisioningClass::loadCredentials() {
 }
 
 bool VwireProvisioningClass::saveCredentials(const char* ssid, const char* password, const char* authToken) {
-  // Clear and set magic
+  // Clear and initialize fresh structure
   memset(&_credentials, 0, sizeof(_credentials));
   _credentials.magic = VWIRE_PROV_MAGIC;
   
-  // Copy credentials
-  strncpy(_credentials.ssid, ssid, VWIRE_PROV_MAX_SSID_LEN - 1);
-  strncpy(_credentials.password, password, VWIRE_PROV_MAX_PASS_LEN - 1);
-  strncpy(_credentials.authToken, authToken, VWIRE_PROV_MAX_TOKEN_LEN - 1);
+  // Copy SSID (required)
+  if (ssid && strlen(ssid) > 0) {
+    size_t len = strlen(ssid);
+    if (len >= VWIRE_PROV_MAX_SSID_LEN) len = VWIRE_PROV_MAX_SSID_LEN - 1;
+    memcpy(_credentials.ssid, ssid, len);
+    _credentials.ssid[len] = '\0';
+  } else {
+    _debugPrint("[Provision] ERROR: SSID is required!");
+    return false;
+  }
   
-  // Calculate checksum
+  // Copy password (optional)
+  if (password && strlen(password) > 0) {
+    size_t len = strlen(password);
+    if (len >= VWIRE_PROV_MAX_PASS_LEN) len = VWIRE_PROV_MAX_PASS_LEN - 1;
+    memcpy(_credentials.password, password, len);
+    _credentials.password[len] = '\0';
+  }
+  
+  // Copy token (optional - empty in OEM mode)
+  if (authToken && strlen(authToken) > 0) {
+    size_t len = strlen(authToken);
+    if (len >= VWIRE_PROV_MAX_TOKEN_LEN) len = VWIRE_PROV_MAX_TOKEN_LEN - 1;
+    memcpy(_credentials.authToken, authToken, len);
+    _credentials.authToken[len] = '\0';
+  }
+  
+  // Calculate checksum AFTER all data is set
   _credentials.checksum = _credentials.calcChecksum();
-  
   _credentialsLoaded = true;
+  
+  _debugPrintf("[Provision] Saving - SSID:%s (%d) Pass:%d Token:%d chars", 
+               _credentials.ssid, strlen(_credentials.ssid),
+               strlen(_credentials.password), strlen(_credentials.authToken));
   
   return _saveToStorage();
 }
@@ -252,88 +276,87 @@ const char* VwireProvisioningClass::getAuthToken() {
   return _credentials.authToken;
 }
 
-bool VwireProvisioningClass::setOEMToken(const char* authToken) {
-  // Load existing credentials (if any)
-  if (!_credentialsLoaded) {
-    loadCredentials();
-  }
-  
-  // Set magic and token, preserve any existing SSID/password
-  _credentials.magic = VWIRE_PROV_MAGIC;
-  strncpy(_credentials.authToken, authToken, VWIRE_PROV_MAX_TOKEN_LEN - 1);
-  _credentials.authToken[VWIRE_PROV_MAX_TOKEN_LEN - 1] = '\0';
-  
-  // Recalculate checksum
-  _credentials.checksum = _credentials.calcChecksum();
-  
-  _credentialsLoaded = true;
-  
-  // Save to storage
-  bool result = _saveToStorage();
-  if (result) {
-    _debugPrintf("[Provision] OEM token saved: %s", authToken);
-  } else {
-    _debugPrint("[Provision] Failed to save OEM token!");
-  }
-  return result;
-}
-
 // =============================================================================
 // STORAGE IMPLEMENTATION
 // =============================================================================
 
 #if defined(VWIRE_BOARD_ESP32)
-// ESP32 uses Preferences library (NVS)
+// ESP32 uses Preferences library (NVS) - robust implementation
 bool VwireProvisioningClass::_loadFromStorage() {
-  _preferences.begin(VWIRE_PROV_NAMESPACE, true);  // Read-only
+  if (!_preferences.begin(VWIRE_PROV_NAMESPACE, true)) {  // Read-only
+    _debugPrint("[Provision] Failed to open NVS namespace");
+    return false;
+  }
   
   size_t len = _preferences.getBytes("cred", &_credentials, sizeof(_credentials));
-  
   _preferences.end();
   
   if (len != sizeof(_credentials)) {
-    _debugPrint("[Provision] No stored credentials found");
+    _debugPrintf("[Provision] NVS size mismatch: %d vs %d", len, sizeof(_credentials));
+    _credentials.init();
     return false;
   }
   
-  if (!_credentials.isValid()) {
-    _debugPrint("[Provision] Stored credentials invalid (checksum mismatch)");
+  if (_credentials.magic != VWIRE_PROV_MAGIC) {
+    _debugPrintf("[Provision] NVS magic mismatch: 0x%04X", _credentials.magic);
+    _credentials.init();
     return false;
   }
   
-  _debugPrintf("[Provision] Loaded credentials for SSID: %s", _credentials.ssid);
+  uint8_t storedChecksum = _credentials.checksum;
+  uint8_t calcedChecksum = _credentials.calcChecksum();
+  if (storedChecksum != calcedChecksum) {
+    _debugPrintf("[Provision] NVS checksum mismatch: 0x%02X vs 0x%02X", storedChecksum, calcedChecksum);
+    _credentials.init();
+    return false;
+  }
+  
+  _debugPrintf("[Provision] Loaded from NVS - SSID:%s Token:%d chars", 
+               _credentials.ssid, strlen(_credentials.authToken));
   return true;
 }
 
 bool VwireProvisioningClass::_saveToStorage() {
-  _preferences.begin(VWIRE_PROV_NAMESPACE, false);  // Read-write
+  // Ensure checksum is current
+  _credentials.checksum = _credentials.calcChecksum();
   
-  size_t written = _preferences.putBytes("cred", &_credentials, sizeof(_credentials));
-  
-  _preferences.end();
-  
-  if (written != sizeof(_credentials)) {
-    _debugPrint("[Provision] Failed to save credentials!");
+  if (!_preferences.begin(VWIRE_PROV_NAMESPACE, false)) {  // Read-write
+    _debugPrint("[Provision] Failed to open NVS for write");
     return false;
   }
   
-  _debugPrintf("[Provision] Saved credentials for SSID: %s", _credentials.ssid);
+  size_t written = _preferences.putBytes("cred", &_credentials, sizeof(_credentials));
+  _preferences.end();
+  
+  if (written != sizeof(_credentials)) {
+    _debugPrintf("[Provision] NVS write failed: %d vs %d", written, sizeof(_credentials));
+    return false;
+  }
+  
+  _debugPrintf("[Provision] Saved to NVS - SSID:%s Token:%d chars", 
+               _credentials.ssid, strlen(_credentials.authToken));
   return true;
 }
 
 bool VwireProvisioningClass::_clearStorage() {
-  _preferences.begin(VWIRE_PROV_NAMESPACE, false);
+  if (!_preferences.begin(VWIRE_PROV_NAMESPACE, false)) {
+    return false;
+  }
   _preferences.clear();
   _preferences.end();
-  _debugPrint("[Provision] Credentials cleared");
+  _debugPrint("[Provision] NVS credentials cleared");
   return true;
 }
 
 #elif defined(VWIRE_BOARD_ESP8266)
-// ESP8266 uses EEPROM
+// ESP8266 uses EEPROM - robust implementation
 bool VwireProvisioningClass::_loadFromStorage() {
+  // Clear structure first
+  memset(&_credentials, 0, sizeof(_credentials));
+  
   EEPROM.begin(VWIRE_PROV_EEPROM_SIZE);
   
+  // Read structure from EEPROM byte by byte
   uint8_t* ptr = (uint8_t*)&_credentials;
   for (size_t i = 0; i < sizeof(_credentials); i++) {
     ptr[i] = EEPROM.read(VWIRE_PROV_EEPROM_START + i);
@@ -341,38 +364,86 @@ bool VwireProvisioningClass::_loadFromStorage() {
   
   EEPROM.end();
   
-  if (!_credentials.isValid()) {
-    _debugPrint("[Provision] No valid credentials in EEPROM");
+  // Validate magic number
+  if (_credentials.magic != VWIRE_PROV_MAGIC) {
+    _debugPrintf("[Provision] EEPROM magic mismatch: 0x%04X (expected 0x%04X)", _credentials.magic, VWIRE_PROV_MAGIC);
+    _credentials.init();
     return false;
   }
   
-  _debugPrintf("[Provision] Loaded credentials for SSID: %s", _credentials.ssid);
+  // Ensure null termination (safety)
+  _credentials.ssid[VWIRE_PROV_MAX_SSID_LEN - 1] = '\0';
+  _credentials.password[VWIRE_PROV_MAX_PASS_LEN - 1] = '\0';
+  _credentials.authToken[VWIRE_PROV_MAX_TOKEN_LEN - 1] = '\0';
+  
+  // Validate checksum
+  uint8_t storedChecksum = _credentials.checksum;
+  uint8_t calcedChecksum = _credentials.calcChecksum();
+  if (storedChecksum != calcedChecksum) {
+    _debugPrintf("[Provision] EEPROM checksum mismatch: 0x%02X vs 0x%02X", storedChecksum, calcedChecksum);
+    _debugPrintf("[Provision] Raw SSID len:%d Pass len:%d Token len:%d",
+                 strlen(_credentials.ssid), strlen(_credentials.password), strlen(_credentials.authToken));
+    _credentials.init();
+    return false;
+  }
+  
+  // Validate SSID is not empty
+  if (strlen(_credentials.ssid) == 0) {
+    _debugPrint("[Provision] EEPROM SSID is empty");
+    _credentials.init();
+    return false;
+  }
+  
+  _debugPrintf("[Provision] Loaded from EEPROM OK - SSID:%s (%d) Pass:%d Token:%d", 
+               _credentials.ssid, strlen(_credentials.ssid),
+               strlen(_credentials.password), strlen(_credentials.authToken));
   return true;
 }
 
 bool VwireProvisioningClass::_saveToStorage() {
+  // Verify checksum before saving
+  _credentials.checksum = _credentials.calcChecksum();
+  
   EEPROM.begin(VWIRE_PROV_EEPROM_SIZE);
   
+  // Write structure to EEPROM
   uint8_t* ptr = (uint8_t*)&_credentials;
   for (size_t i = 0; i < sizeof(_credentials); i++) {
     EEPROM.write(VWIRE_PROV_EEPROM_START + i, ptr[i]);
   }
   
   bool result = EEPROM.commit();
-  EEPROM.end();
   
   if (!result) {
-    _debugPrint("[Provision] Failed to save to EEPROM!");
+    EEPROM.end();
+    _debugPrint("[Provision] EEPROM commit failed!");
     return false;
   }
   
-  _debugPrintf("[Provision] Saved credentials for SSID: %s", _credentials.ssid);
+  // Verify write by reading back
+  VwireCredentials verify;
+  uint8_t* vptr = (uint8_t*)&verify;
+  for (size_t i = 0; i < sizeof(verify); i++) {
+    vptr[i] = EEPROM.read(VWIRE_PROV_EEPROM_START + i);
+  }
+  
+  EEPROM.end();
+  
+  // Compare what we wrote vs what we read
+  if (memcmp(&_credentials, &verify, sizeof(_credentials)) != 0) {
+    _debugPrint("[Provision] EEPROM verify failed - data mismatch!");
+    return false;
+  }
+  
+  _debugPrintf("[Provision] Saved to EEPROM - SSID:%s Token:%d chars (verified)", 
+               _credentials.ssid, strlen(_credentials.authToken));
   return true;
 }
 
 bool VwireProvisioningClass::_clearStorage() {
   EEPROM.begin(VWIRE_PROV_EEPROM_SIZE);
   
+  // Write zeros to entire credential area
   for (size_t i = 0; i < sizeof(_credentials); i++) {
     EEPROM.write(VWIRE_PROV_EEPROM_START + i, 0);
   }
@@ -380,7 +451,7 @@ bool VwireProvisioningClass::_clearStorage() {
   bool result = EEPROM.commit();
   EEPROM.end();
   
-  _debugPrint("[Provision] Credentials cleared from EEPROM");
+  _debugPrint("[Provision] EEPROM credentials cleared");
   return result;
 }
 
@@ -652,16 +723,12 @@ void VwireProvisioningClass::_handleConfig() {
     return;
   }
 
-  // In OEM mode, use existing token; in end-user mode, require token from form
+  // In OEM mode, token is in firmware - only save WiFi credentials
+  // In end-user mode, token comes from form and must be saved
   if (_oemMode) {
-    // OEM mode: use pre-configured token from storage
-    token = String(getAuthToken());
-    if (token.length() == 0) {
-      _webServer->send(400, "application/json", "{\"success\":false,\"error\":\"OEM token not found. Call setOEMToken() before startAPMode().\"}" );
-      _debugPrint("[Provision] ERROR: OEM mode requires setOEMToken() to be called first!");
-      return;
-    }
-    _debugPrintf("[Provision] OEM Mode - Using pre-configured token: %s", token.c_str());
+    // OEM mode: token is hardcoded in firmware, just save WiFi
+    _debugPrintf("[Provision] OEM Mode - Saving WiFi only (token is in firmware)");
+    token = "";  // Don't store token in OEM mode
   } else {
     // End-user mode: require token from form
     if (token.length() == 0) {
@@ -670,9 +737,9 @@ void VwireProvisioningClass::_handleConfig() {
     }
   }
   
-  _debugPrintf("[Provision] Received - SSID: %s, Token: %s", ssid.c_str(), token.c_str());
+  _debugPrintf("[Provision] Received - SSID: %s, Token: %s", ssid.c_str(), _oemMode ? "(OEM-firmware)" : token.c_str());
   
-  // Save credentials
+  // Save credentials (token empty in OEM mode - it's in firmware)
   if (!saveCredentials(ssid.c_str(), password.c_str(), token.c_str())) {
     _webServer->send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save credentials\"}");
     return;

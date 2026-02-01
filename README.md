@@ -498,17 +498,15 @@ Serial.printf("Open: http://%s\n", VwireProvision.getAPIP().c_str());
 #define VWIRE_AUTH_TOKEN "your-token-from-admin-csv"
 
 void setup() {
-  // Configure with pre-configured token
+  // Configure with hardcoded token (OEM token is in firmware, not EEPROM)
   Vwire.config(VWIRE_AUTH_TOKEN);
   
   if (VwireProvision.hasCredentials()) {
-    // Use stored WiFi credentials
+    // Use stored WiFi credentials + hardcoded token
     Vwire.begin(VwireProvision.getSSID(), VwireProvision.getPassword());
   } else {
-    // IMPORTANT: Save OEM token to storage first
-    VwireProvision.setOEMToken(VWIRE_AUTH_TOKEN);
-    
     // Start AP Mode in OEM mode (WiFi only, no token field)
+    // Token stays in firmware, only WiFi credentials stored in EEPROM
     VwireProvision.startAPMode("vwire123", 0, true);  // true = OEM mode
   }
 }

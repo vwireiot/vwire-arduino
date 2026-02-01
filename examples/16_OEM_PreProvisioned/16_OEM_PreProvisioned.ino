@@ -51,7 +51,8 @@
 
 // IMPORTANT: Replace this with the AUTH TOKEN from Admin Panel CSV
 // The auth token is the secret key used for device authentication
-#define VWIRE_AUTH_TOKEN  "your-auth-token-from-admin-panel"
+// Format: iot_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (36 chars)
+#define VWIRE_AUTH_TOKEN  "iot_V1StGXR8_Z5jdHi6B-myT_n09sdnW3"
 
 // Device ID for display purposes (shown on QR code sticker, etc.)
 // This helps users identify their device during claiming
@@ -231,7 +232,9 @@ void setup() {
 
   // Configure Vwire with pre-provisioned AUTH TOKEN
   // The auth token is the secret key used for MQTT authentication
+  Serial.printf("[OEM] Configuring with auth token (length: %d)\n", strlen(VWIRE_AUTH_TOKEN));
   Vwire.config(VWIRE_AUTH_TOKEN);
+  Vwire.setDebug(true);  // Enable debug output
   
   // Set connection handlers
   Vwire.onConnect(onVwireConnected);
@@ -244,22 +247,25 @@ void setup() {
   // Check if WiFi credentials are stored
   if (VwireProvision.hasCredentials()) {
     Serial.println("[OEM] WiFi credentials found, connecting...");
+    Serial.printf("[OEM] SSID: %s\n", VwireProvision.getSSID());
+    Serial.printf("[OEM] Using hardcoded auth token (length: %d)\n", strlen(VWIRE_AUTH_TOKEN));
     
-    // Use stored WiFi credentials
-    Vwire.begin(VwireProvision.getSSID(), VwireProvision.getPassword());
+    // IMPORTANT: Ensure WiFi is in station mode (not AP mode from previous run)
+    WiFi.mode(WIFI_STA);
+    delay(100);
+    
+    // Use stored WiFi credentials + hardcoded auth token (set in config above)
+    Serial.println("[OEM] Calling Vwire.begin()...");
+    bool success = Vwire.begin(VwireProvision.getSSID(), VwireProvision.getPassword());
+    Serial.printf("[OEM] Vwire.begin() returned: %s\n", success ? "SUCCESS" : "FAILED");
     wifiProvisioned = true;
   } else {
     Serial.println("[OEM] No WiFi credentials, starting AP Mode...");
-    Serial.println("[OEM] NOTE: Device ID and Auth Token are pre-configured");
+    Serial.println("[OEM] NOTE: Auth Token is hardcoded in firmware");
     Serial.println("[OEM]       Only WiFi credentials needed from user");
     
-    // IMPORTANT: Save the pre-configured OEM token to storage BEFORE starting AP mode
-    // This allows the portal to use it when saving WiFi credentials
-    VwireProvision.setOEMToken(VWIRE_AUTH_TOKEN);
-    
-    // Start AP Mode with device ID as part of SSID (for user identification)
-    // Note: The device ID is just for display - auth token is what matters
-    // OEM Mode = true: Token field will NOT be shown in portal (WiFi only)
+    // Start AP Mode - OEM mode only collects WiFi credentials
+    // Token is hardcoded in firmware (VWIRE_AUTH_TOKEN), not stored in EEPROM
     String apSSID = "VWire_" + String(VWIRE_DEVICE_ID_DISPLAY);
     VwireProvision.startAPMode(apSSID.c_str(), AP_PASSWORD, 0, true);  // true = OEM mode
   }

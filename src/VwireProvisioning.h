@@ -54,8 +54,10 @@
 /** @brief Maximum password length (including null terminator) */
 #define VWIRE_PROV_MAX_PASS_LEN 65
 
-/** @brief Maximum auth token length (including null terminator) */
-#define VWIRE_PROV_MAX_TOKEN_LEN 64
+/** @brief Maximum auth token length (including null terminator) 
+ *  SHA256 hex = 64 chars + null = 65 bytes minimum
+ *  Using 72 to have some margin */
+#define VWIRE_PROV_MAX_TOKEN_LEN 72
 
 /** @brief Default AP SSID prefix */
 #define VWIRE_PROV_AP_PREFIX "VWire Device "
@@ -76,7 +78,7 @@
 #define VWIRE_PROV_EEPROM_SIZE 256
 
 /** @brief Magic value to validate stored credentials */
-#define VWIRE_PROV_MAGIC 0x5710
+#define VWIRE_PROV_MAGIC 0x5712
 
 // =============================================================================
 // PROVISIONING STATE
@@ -121,28 +123,45 @@ typedef void (*ProvisioningProgressCallback)(int progress);
 
 /**
  * @brief Structure for stored WiFi credentials and device token
+ * 
+ * Simple structure with XOR checksum for reliable storage.
+ * Packed to prevent alignment issues on ESP8266.
+ * Total size: 173 bytes (2+33+65+72+1)
  */
-struct VwireCredentials {
-  uint16_t magic;                          ///< Magic value to validate data
-  char ssid[VWIRE_PROV_MAX_SSID_LEN];      ///< WiFi SSID
-  char password[VWIRE_PROV_MAX_PASS_LEN];  ///< WiFi password
-  char authToken[VWIRE_PROV_MAX_TOKEN_LEN];///< Device auth token from Vwire
-  uint8_t checksum;                         ///< Simple checksum
+struct __attribute__((packed)) VwireCredentials {
+  uint16_t magic;                          ///< Magic value (0x5712) to validate data
+  char ssid[VWIRE_PROV_MAX_SSID_LEN];      ///< WiFi SSID (33 bytes)
+  char password[VWIRE_PROV_MAX_PASS_LEN];  ///< WiFi password (65 bytes)
+  char authToken[VWIRE_PROV_MAX_TOKEN_LEN];///< Device auth token (72 bytes)
+  uint8_t checksum;                         ///< XOR checksum
   
-  /** @brief Calculate checksum */
+  /** @brief Calculate simple XOR checksum */
   uint8_t calcChecksum() const {
     uint8_t sum = 0;
     const uint8_t* data = (const uint8_t*)this;
-    // Checksum everything except the checksum byte itself
-    for (size_t i = 0; i < sizeof(VwireCredentials) - 1; i++) {
+    // Checksum magic + all credential data (exclude checksum byte)
+    for (size_t i = 0; i < offsetof(VwireCredentials, checksum); i++) {
       sum ^= data[i];
     }
     return sum;
   }
   
-  /** @brief Verify checksum */
+  /** @brief Verify structure is valid */
   bool isValid() const {
-    return magic == VWIRE_PROV_MAGIC && checksum == calcChecksum();
+    return magic == VWIRE_PROV_MAGIC && 
+           strlen(ssid) > 0 && 
+           checksum == calcChecksum();
+  }
+  
+  /** @brief Check if token is stored */
+  bool hasToken() const {
+    return strlen(authToken) > 0;
+  }
+  
+  /** @brief Initialize structure */
+  void init() {
+    memset(this, 0, sizeof(VwireCredentials));
+    magic = VWIRE_PROV_MAGIC;
   }
 };
 
@@ -239,22 +258,10 @@ public:
   const char* getPassword();
   
   /**
-   * @brief Get stored auth token
-   * @return Auth token string (empty if not stored)
+   * @brief Get stored auth token (end-user mode only)
+   * @return Auth token string (empty in OEM mode - use hardcoded token)
    */
   const char* getAuthToken();
-  
-  /**
-   * @brief Set OEM auth token (for pre-provisioned devices)
-   * 
-   * Call this BEFORE startAPMode() in OEM workflow to store the
-   * pre-configured token. This allows OEM devices to use the token
-   * from firmware while collecting only WiFi credentials from user.
-   * 
-   * @param authToken Pre-configured device auth token
-   * @return true if saved successfully
-   */
-  bool setOEMToken(const char* authToken);
   
   // =========================================================================
   // AP MODE PROVISIONING
