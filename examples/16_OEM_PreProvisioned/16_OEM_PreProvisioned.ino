@@ -253,6 +253,10 @@ void setup() {
     Serial.println("[OEM] NOTE: Device ID and Auth Token are pre-configured");
     Serial.println("[OEM]       Only WiFi credentials needed from user");
     
+    // IMPORTANT: Save the pre-configured OEM token to storage BEFORE starting AP mode
+    // This allows the portal to use it when saving WiFi credentials
+    VwireProvision.setOEMToken(VWIRE_AUTH_TOKEN);
+    
     // Start AP Mode with device ID as part of SSID (for user identification)
     // Note: The device ID is just for display - auth token is what matters
     // OEM Mode = true: Token field will NOT be shown in portal (WiFi only)

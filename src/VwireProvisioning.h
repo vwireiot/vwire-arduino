@@ -244,6 +244,18 @@ public:
    */
   const char* getAuthToken();
   
+  /**
+   * @brief Set OEM auth token (for pre-provisioned devices)
+   * 
+   * Call this BEFORE startAPMode() in OEM workflow to store the
+   * pre-configured token. This allows OEM devices to use the token
+   * from firmware while collecting only WiFi credentials from user.
+   * 
+   * @param authToken Pre-configured device auth token
+   * @return true if saved successfully
+   */
+  bool setOEMToken(const char* authToken);
+  
   // =========================================================================
   // AP MODE PROVISIONING
   // =========================================================================

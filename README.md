@@ -505,6 +505,9 @@ void setup() {
     // Use stored WiFi credentials
     Vwire.begin(VwireProvision.getSSID(), VwireProvision.getPassword());
   } else {
+    // IMPORTANT: Save OEM token to storage first
+    VwireProvision.setOEMToken(VWIRE_AUTH_TOKEN);
+    
     // Start AP Mode in OEM mode (WiFi only, no token field)
     VwireProvision.startAPMode("vwire123", 0, true);  // true = OEM mode
   }

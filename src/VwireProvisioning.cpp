@@ -204,6 +204,7 @@ bool VwireProvisioningClass::hasCredentials() {
   if (!_credentialsLoaded) {
     loadCredentials();
   }
+  // Check if we have WiFi credentials (token is optional for OEM mode)
   return _credentials.isValid() && strlen(_credentials.ssid) > 0;
 }
 
@@ -249,6 +250,32 @@ const char* VwireProvisioningClass::getPassword() {
 const char* VwireProvisioningClass::getAuthToken() {
   if (!_credentialsLoaded) loadCredentials();
   return _credentials.authToken;
+}
+
+bool VwireProvisioningClass::setOEMToken(const char* authToken) {
+  // Load existing credentials (if any)
+  if (!_credentialsLoaded) {
+    loadCredentials();
+  }
+  
+  // Set magic and token, preserve any existing SSID/password
+  _credentials.magic = VWIRE_PROV_MAGIC;
+  strncpy(_credentials.authToken, authToken, VWIRE_PROV_MAX_TOKEN_LEN - 1);
+  _credentials.authToken[VWIRE_PROV_MAX_TOKEN_LEN - 1] = '\0';
+  
+  // Recalculate checksum
+  _credentials.checksum = _credentials.calcChecksum();
+  
+  _credentialsLoaded = true;
+  
+  // Save to storage
+  bool result = _saveToStorage();
+  if (result) {
+    _debugPrintf("[Provision] OEM token saved: %s", authToken);
+  } else {
+    _debugPrint("[Provision] Failed to save OEM token!");
+  }
+  return result;
 }
 
 // =============================================================================
@@ -627,13 +654,14 @@ void VwireProvisioningClass::_handleConfig() {
 
   // In OEM mode, use existing token; in end-user mode, require token from form
   if (_oemMode) {
-    // OEM mode: use pre-configured token
+    // OEM mode: use pre-configured token from storage
     token = String(getAuthToken());
     if (token.length() == 0) {
-      _webServer->send(400, "application/json", "{\"success\":false,\"error\":\"No pre-configured token found. Device must be provisioned first.\"}");
+      _webServer->send(400, "application/json", "{\"success\":false,\"error\":\"OEM token not found. Call setOEMToken() before startAPMode().\"}" );
+      _debugPrint("[Provision] ERROR: OEM mode requires setOEMToken() to be called first!");
       return;
     }
-    _debugPrintf("[Provision] OEM Mode - Using pre-configured token");
+    _debugPrintf("[Provision] OEM Mode - Using pre-configured token: %s", token.c_str());
   } else {
     // End-user mode: require token from form
     if (token.length() == 0) {
