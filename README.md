@@ -462,6 +462,85 @@ Serial.printf("Connect to: %s\n", VwireProvision.getAPSSID());
 Serial.printf("Open: http://%s\n", VwireProvision.getAPIP().c_str());
 ```
 
+#### OEM Mode (Pre-Provisioned Devices)
+
+**New in v3.1.0!** OEM mode is designed for manufacturers who pre-provision devices before shipping to customers.
+
+**Two Provisioning Workflows:**
+
+| Mode | Token Source | Portal Shows | Use Case |
+|------|--------------|--------------|----------|
+| **End-User Mode** (default) | User enters from dashboard | WiFi + Token fields | Consumer sells device, buyer provisions |
+| **OEM Mode** | Pre-configured in firmware | WiFi only | Manufacturer pre-provisions, customer adds WiFi |
+
+**OEM Workflow:**
+
+1. Manufacturer creates devices in bulk via Admin Panel
+2. Each device gets unique Device ID and Auth Token
+3. Manufacturer flashes firmware with pre-configured token
+4. Customer receives device and only provides WiFi credentials
+5. When customer claims device, template project is auto-created
+
+**End-User Workflow (Default):**
+
+1. User flashes generic firmware (no token)
+2. User creates device in their dashboard
+3. User configures device via portal with WiFi + Token
+4. Device connects to their project
+
+**Example - OEM Mode:**
+
+```cpp
+#include <Vwire.h>
+#include <VwireProvisioning.h>
+
+// Pre-configured from Admin Panel bulk provisioning
+#define VWIRE_AUTH_TOKEN "your-token-from-admin-csv"
+
+void setup() {
+  // Configure with pre-configured token
+  Vwire.config(VWIRE_AUTH_TOKEN);
+  
+  if (VwireProvision.hasCredentials()) {
+    // Use stored WiFi credentials
+    Vwire.begin(VwireProvision.getSSID(), VwireProvision.getPassword());
+  } else {
+    // Start AP Mode in OEM mode (WiFi only, no token field)
+    VwireProvision.startAPMode("vwire123", 0, true);  // true = OEM mode
+  }
+}
+
+void loop() {
+  Vwire.run();
+  VwireProvision.run();
+}
+```
+
+**Example - End-User Mode (Default):**
+
+```cpp
+#include <Vwire.h>
+#include <VwireProvisioning.h>
+
+void setup() {
+  if (VwireProvision.hasCredentials()) {
+    // Use stored credentials (WiFi + Token)
+    Vwire.config(VwireProvision.getAuthToken());
+    Vwire.begin(VwireProvision.getSSID(), VwireProvision.getPassword());
+  } else {
+    // Start AP Mode - user provides both WiFi and Token
+    VwireProvision.startAPMode("vwire123", 0);  // false = End-user mode (default)
+  }
+}
+
+void loop() {
+  Vwire.run();
+  VwireProvision.run();
+}
+```
+
+**See also:** [Example 16_OEM_PreProvisioned](examples/16_OEM_PreProvisioned)
+
 #### Provisioning States
 
 | State | Description |

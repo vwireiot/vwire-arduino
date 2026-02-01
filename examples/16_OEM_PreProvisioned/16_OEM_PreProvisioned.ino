@@ -255,8 +255,9 @@ void setup() {
     
     // Start AP Mode with device ID as part of SSID (for user identification)
     // Note: The device ID is just for display - auth token is what matters
+    // OEM Mode = true: Token field will NOT be shown in portal (WiFi only)
     String apSSID = "VWire_" + String(VWIRE_DEVICE_ID_DISPLAY);
-    VwireProvision.startAPMode(apSSID.c_str(), AP_PASSWORD, 0);
+    VwireProvision.startAPMode(apSSID.c_str(), AP_PASSWORD, 0, true);  // true = OEM mode
   }
 }
 

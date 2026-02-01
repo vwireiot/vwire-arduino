@@ -155,79 +155,7 @@ static const char PROGMEM HTML_FOOTER[] = R"rawliteral(
 </html>
 )rawliteral";
 
-static const char PROGMEM HTML_CONFIG_FORM[] = R"rawliteral(
-    <div class="logo">
-      <h1>VWire Setup</h1>
-      <p>Configure your IoT device</p>
-    </div>
-    
-    <form id="configForm" onsubmit="return submitConfig()">
-      <div class="form-group">
-        <label for="ssid">WiFi Network (SSID)</label>
-        <input type="text" id="ssid" name="ssid" placeholder="Your WiFi name" required maxlength="32">
-      </div>
-      
-      <div class="form-group">
-        <label for="password">WiFi Password</label>
-        <input type="password" id="password" name="password" placeholder="WiFi password" maxlength="64">
-      </div>
-      
-      <div class="form-group">
-        <label for="token">Device Token</label>
-        <input type="text" id="token" name="token" placeholder="From VWire dashboard" required maxlength="63">
-      </div>
-      
-      <button type="submit" id="submitBtn">Configure Device</button>
-      
-      <div id="status" class="status" style="display:none;"></div>
-      
-      <div class="note">
-        <strong>Note:</strong> After configuration, the device will restart and connect to your WiFi network.
-        You can then close this page.
-      </div>
-    </form>
-    
-    <script>
-      function submitConfig() {
-        var btn = document.getElementById('submitBtn');
-        var status = document.getElementById('status');
-        var ssid = document.getElementById('ssid').value;
-        var password = document.getElementById('password').value;
-        var token = document.getElementById('token').value;
-        
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner"></span>Configuring...';
-        status.style.display = 'none';
-        
-        fetch('/config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: 'ssid=' + encodeURIComponent(ssid) + 
-                '&password=' + encodeURIComponent(password) + 
-                '&token=' + encodeURIComponent(token)
-        })
-        .then(function(response) { return response.json(); })
-        .then(function(data) {
-          if (data.success) {
-            status.className = 'status success';
-            status.innerHTML = '✓ Configuration saved! Device is restarting...';
-            status.style.display = 'block';
-          } else {
-            throw new Error(data.error || 'Configuration failed');
-          }
-        })
-        .catch(function(error) {
-          status.className = 'status error';
-          status.innerHTML = '✗ ' + error.message;
-          status.style.display = 'block';
-          btn.disabled = false;
-          btn.innerHTML = 'Configure Device';
-        });
-        
-        return false;
-      }
-    </script>
-)rawliteral";
+// Form generation is now done dynamically in _setupAPWebServer() based on _oemMode
 
 #endif // VWIRE_HAS_AP_PROVISIONING
 
@@ -240,6 +168,7 @@ VwireProvisioningClass::VwireProvisioningClass()
   , _credentialsLoaded(false)
   , _startTime(0)
   , _timeout(0)
+  , _oemMode(false)
   , _stateCallback(nullptr)
   , _credentialsCallback(nullptr)
   , _progressCallback(nullptr)
@@ -444,7 +373,7 @@ bool VwireProvisioningClass::_clearStorage() { return true; }
 // =============================================================================
 #if VWIRE_HAS_AP_PROVISIONING
 
-bool VwireProvisioningClass::startAPMode(const char* apPassword, unsigned long timeout) {
+bool VwireProvisioningClass::startAPMode(const char* apPassword, unsigned long timeout, bool oemMode) {
   // Generate unique AP SSID using chip ID
   #if defined(VWIRE_BOARD_ESP32)
   uint32_t chipId = (uint32_t)(ESP.getEfuseMac() >> 32);
@@ -457,14 +386,17 @@ bool VwireProvisioningClass::startAPMode(const char* apPassword, unsigned long t
   char apSSID[VWIRE_PROV_MAX_SSID_LEN];
   snprintf(apSSID, sizeof(apSSID), "%s%04X", VWIRE_PROV_AP_PREFIX, (uint16_t)(chipId & 0xFFFF));
   
-  return startAPMode(apSSID, apPassword, timeout);
+  return startAPMode(apSSID, apPassword, timeout, oemMode);
 }
 
-bool VwireProvisioningClass::startAPMode(const char* apSSID, const char* apPassword, unsigned long timeout) {
+bool VwireProvisioningClass::startAPMode(const char* apSSID, const char* apPassword, unsigned long timeout, bool oemMode) {
   // Stop any existing provisioning
   stop();
   
-  _debugPrintf("[Provision] Starting AP Mode: %s", apSSID);
+  // Store OEM mode flag
+  _oemMode = oemMode;
+  
+  _debugPrintf("[Provision] Starting AP Mode: %s (OEM Mode: %s)", apSSID, oemMode ? "YES" : "NO");
   
   // Store AP SSID for retrieval
   strncpy(_apSSID, apSSID, VWIRE_PROV_MAX_SSID_LEN - 1);
@@ -562,7 +494,94 @@ void VwireProvisioningClass::_setupAPWebServer() {
 
 void VwireProvisioningClass::_handleRoot() {
   String html = FPSTR(HTML_HEADER);
-  html += FPSTR(HTML_CONFIG_FORM);
+  
+  // Generate form based on OEM mode
+  html += F("<div class=\"logo\">\n");
+  html += F("  <h1>VWire Setup</h1>\n");
+  html += F("  <p>Configure your IoT device</p>\n");
+  html += F("</div>\n\n");
+  html += F("<form id=\"configForm\" onsubmit=\"return submitConfig()\">\n");
+  
+  // WiFi SSID field (always shown)
+  html += F("  <div class=\"form-group\">\n");
+  html += F("    <label for=\"ssid\">WiFi Network (SSID)</label>\n");
+  html += F("    <input type=\"text\" id=\"ssid\" name=\"ssid\" placeholder=\"Your WiFi name\" required maxlength=\"32\">\n");
+  html += F("  </div>\n\n");
+  
+  // WiFi Password field (always shown)
+  html += F("  <div class=\"form-group\">\n");
+  html += F("    <label for=\"password\">WiFi Password</label>\n");
+  html += F("    <input type=\"password\" id=\"password\" name=\"password\" placeholder=\"WiFi password\" maxlength=\"64\">\n");
+  html += F("  </div>\n\n");
+  
+  // Device Token field (only for end-user mode)
+  if (!_oemMode) {
+    html += F("  <div class=\"form-group\">\n");
+    html += F("    <label for=\"token\">Device Token</label>\n");
+    html += F("    <input type=\"text\" id=\"token\" name=\"token\" placeholder=\"From VWire dashboard\" required maxlength=\"63\">\n");
+    html += F("  </div>\n\n");
+  }
+  
+  html += F("  <button type=\"submit\" id=\"submitBtn\">Configure Device</button>\n\n");
+  html += F("  <div id=\"status\" class=\"status\" style=\"display:none;\"></div>\n\n");
+  html += F("  <div class=\"note\">\n");
+  html += F("    <strong>Note:</strong> After configuration, the device will restart and connect to your WiFi network.\n");
+  html += F("    You can then close this page.\n");
+  html += F("  </div>\n");
+  html += F("</form>\n\n");
+  
+  // JavaScript for form submission
+  html += F("<script>\n");
+  html += F("function submitConfig() {\n");
+  html += F("  var btn = document.getElementById('submitBtn');\n");
+  html += F("  var status = document.getElementById('status');\n");
+  html += F("  var ssid = document.getElementById('ssid').value;\n");
+  html += F("  var password = document.getElementById('password').value;\n");
+  
+  if (!_oemMode) {
+    html += F("  var token = document.getElementById('token').value;\n");
+  }
+  
+  html += F("  btn.disabled = true;\n");
+  html += F("  btn.innerHTML = '<span class=\"spinner\"></span>Configuring...';\n");
+  html += F("  status.style.display = 'none';\n\n");
+  
+  html += F("  var body = 'ssid=' + encodeURIComponent(ssid) + \n");
+  html += F("             '&password=' + encodeURIComponent(password)");
+  
+  if (!_oemMode) {
+    html += F(" + \n             '&token=' + encodeURIComponent(token)");
+  }
+  
+  html += F(";\n\n");
+  
+  html += F("  fetch('/config', {\n");
+  html += F("    method: 'POST',\n");
+  html += F("    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },\n");
+  html += F("    body: body\n");
+  html += F("  })\n");
+  html += F("  .then(function(response) { return response.json(); })\n");
+  html += F("  .then(function(data) {\n");
+  html += F("    if (data.success) {\n");
+  html += F("      status.className = 'status success';\n");
+  html += F("      status.innerHTML = '✓ Configuration saved! Device is restarting...';\n");
+  html += F("      status.style.display = 'block';\n");
+  html += F("    } else {\n");
+  html += F("      throw new Error(data.error || 'Configuration failed');\n");
+  html += F("    }\n");
+  html += F("  })\n");
+  html += F("  .catch(function(error) {\n");
+  html += F("    status.className = 'status error';\n");
+  html += F("    status.innerHTML = '✗ ' + error.message;\n");
+  html += F("    status.style.display = 'block';\n");
+  html += F("    btn.disabled = false;\n");
+  html += F("    btn.innerHTML = 'Configure Device';\n");
+  html += F("  });\n\n");
+  
+  html += F("  return false;\n");
+  html += F("}\n");
+  html += F("</script>\n");
+  
   html += FPSTR(HTML_FOOTER);
   _webServer->send(200, "text/html", html);
 }
@@ -606,9 +625,21 @@ void VwireProvisioningClass::_handleConfig() {
     return;
   }
 
-  if (token.length() == 0) {
-    _webServer->send(400, "application/json", "{\"success\":false,\"error\":\"Device token is required\"}");
-    return;
+  // In OEM mode, use existing token; in end-user mode, require token from form
+  if (_oemMode) {
+    // OEM mode: use pre-configured token
+    token = String(getAuthToken());
+    if (token.length() == 0) {
+      _webServer->send(400, "application/json", "{\"success\":false,\"error\":\"No pre-configured token found. Device must be provisioned first.\"}");
+      return;
+    }
+    _debugPrintf("[Provision] OEM Mode - Using pre-configured token");
+  } else {
+    // End-user mode: require token from form
+    if (token.length() == 0) {
+      _webServer->send(400, "application/json", "{\"success\":false,\"error\":\"Device token is required\"}");
+      return;
+    }
   }
   
   _debugPrintf("[Provision] Received - SSID: %s, Token: %s", ssid.c_str(), token.c_str());

@@ -257,18 +257,20 @@ public:
    *
    * @param apPassword Optional AP password (empty = open network)
    * @param timeout Timeout in milliseconds (0 = no timeout)
+   * @param oemMode true = OEM mode (WiFi only), false = End-user mode (WiFi + Token)
    * @return true if started successfully
    */
-  bool startAPMode(const char* apPassword = "", unsigned long timeout = VWIRE_PROV_AP_TIMEOUT);
+  bool startAPMode(const char* apPassword = "", unsigned long timeout = VWIRE_PROV_AP_TIMEOUT, bool oemMode = false);
 
   /**
    * @brief Start AP Mode with custom AP name
    * @param apSSID Custom AP SSID
    * @param apPassword Optional AP password
    * @param timeout Timeout in milliseconds
+   * @param oemMode true = OEM mode (WiFi only), false = End-user mode (WiFi + Token)
    * @return true if started successfully
    */
-  bool startAPMode(const char* apSSID, const char* apPassword, unsigned long timeout);
+  bool startAPMode(const char* apSSID, const char* apPassword, unsigned long timeout, bool oemMode = false);
 
   /**
    * @brief Stop AP Mode provisioning
@@ -370,6 +372,7 @@ private:
   // Timeouts
   unsigned long _startTime;
   unsigned long _timeout;
+  bool _oemMode;  // true = OEM mode (WiFi only), false = End-user mode (WiFi + Token)
   
   // Callbacks
   ProvisioningStateCallback _stateCallback;
