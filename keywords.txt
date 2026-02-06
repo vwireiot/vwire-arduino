@@ -1,0 +1,151 @@
+#######################################
+# Syntax Coloring Map for Vwire IOT Library
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+Vwire	KEYWORD1
+VirtualPin	KEYWORD1
+VwireSettings	KEYWORD1
+VwireClass	KEYWORD1
+VwireState	KEYWORD1
+VwireError	KEYWORD1
+VwireTransport	KEYWORD1
+VwireProvision	KEYWORD1
+VwireProvisioningClass	KEYWORD1
+VwireProvisioningState	KEYWORD1
+VwireProvisioningMethod	KEYWORD1
+VwireCredentials	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+config	KEYWORD2
+begin	KEYWORD2
+run	KEYWORD2
+connected	KEYWORD2
+disconnect	KEYWORD2
+virtualSend	KEYWORD2
+virtualSendf	KEYWORD2
+virtualSendArray	KEYWORD2
+onVirtualReceive	KEYWORD2
+onConnect	KEYWORD2
+onDisconnect	KEYWORD2
+onMessage	KEYWORD2
+notify	KEYWORD2
+email	KEYWORD2
+log	KEYWORD2
+enableOTA	KEYWORD2
+handleOTA	KEYWORD2
+setDebug	KEYWORD2
+setDebugStream	KEYWORD2
+setTransport	KEYWORD2
+setAutoReconnect	KEYWORD2
+setReconnectInterval	KEYWORD2
+setHeartbeatInterval	KEYWORD2
+getState	KEYWORD2
+getLastError	KEYWORD2
+getDeviceId	KEYWORD2
+getBoardName	KEYWORD2
+getVersion	KEYWORD2
+getFreeHeap	KEYWORD2
+getUptime	KEYWORD2
+getWiFiRSSI	KEYWORD2
+printDebugInfo	KEYWORD2
+syncVirtual	KEYWORD2
+syncAll	KEYWORD2
+
+# Provisioning Methods
+hasCredentials	KEYWORD2
+loadCredentials	KEYWORD2
+saveCredentials	KEYWORD2
+clearCredentials	KEYWORD2
+getSSID	KEYWORD2
+getPassword	KEYWORD2
+getAuthToken	KEYWORD2
+startSmartConfig	KEYWORD2
+stopSmartConfig	KEYWORD2
+startAPMode	KEYWORD2
+stopAPMode	KEYWORD2
+getAPSSID	KEYWORD2
+getAPIP	KEYWORD2
+isProvisioning	KEYWORD2
+getMethod	KEYWORD2
+onStateChange	KEYWORD2
+onCredentialsReceived	KEYWORD2
+onProgress	KEYWORD2
+
+# VirtualPin Methods
+asInt	KEYWORD2
+asFloat	KEYWORD2
+asDouble	KEYWORD2
+asBool	KEYWORD2
+asString	KEYWORD2
+asCString	KEYWORD2
+getArraySize	KEYWORD2
+getArrayInt	KEYWORD2
+getArrayFloat	KEYWORD2
+getArrayElement	KEYWORD2
+set	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+# Transport Types
+VWIRE_TRANSPORT_TCP	LITERAL1
+VWIRE_TRANSPORT_TCP_SSL	LITERAL1
+
+# Connection States
+VWIRE_STATE_IDLE	LITERAL1
+VWIRE_STATE_CONNECTING_WIFI	LITERAL1
+VWIRE_STATE_CONNECTING_MQTT	LITERAL1
+VWIRE_STATE_CONNECTED	LITERAL1
+VWIRE_STATE_DISCONNECTED	LITERAL1
+VWIRE_STATE_ERROR	LITERAL1
+
+# Error Codes
+VWIRE_ERR_NONE	LITERAL1
+VWIRE_ERR_NO_TOKEN	LITERAL1
+VWIRE_ERR_WIFI_FAILED	LITERAL1
+VWIRE_ERR_MQTT_FAILED	LITERAL1
+VWIRE_ERR_NOT_CONNECTED	LITERAL1
+VWIRE_ERR_INVALID_PIN	LITERAL1
+VWIRE_ERR_BUFFER_FULL	LITERAL1
+VWIRE_ERR_HANDLER_FULL	LITERAL1
+VWIRE_ERR_TIMEOUT	LITERAL1
+VWIRE_ERR_SSL_FAILED	LITERAL1
+
+# Board Names
+VWIRE_BOARD_NAME	LITERAL1
+VWIRE_VERSION	LITERAL1
+
+# Provisioning States
+VWIRE_PROV_IDLE	LITERAL1
+VWIRE_PROV_SMARTCONFIG_WAIT	LITERAL1
+VWIRE_PROV_AP_ACTIVE	LITERAL1
+VWIRE_PROV_CONNECTING	LITERAL1
+VWIRE_PROV_SUCCESS	LITERAL1
+VWIRE_PROV_FAILED	LITERAL1
+VWIRE_PROV_TIMEOUT	LITERAL1
+
+# Provisioning Methods
+VWIRE_PROV_METHOD_NONE	LITERAL1
+VWIRE_PROV_METHOD_SMARTCONFIG	LITERAL1
+VWIRE_PROV_METHOD_AP	LITERAL1
+
+# Feature Flags
+VWIRE_HAS_SMARTCONFIG	LITERAL1
+VWIRE_HAS_AP_PROVISIONING	LITERAL1
+
+#######################################
+# Macros (KEYWORD3)
+#######################################
+
+VWIRE_RECEIVE	KEYWORD3
+VWIRE_READ	KEYWORD3
+VWIRE_CONNECTED	KEYWORD3
+VWIRE_DISCONNECTED	KEYWORD3
