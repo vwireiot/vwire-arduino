@@ -38,6 +38,7 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 // VWIRE IOT AUTHENTICATION
 // =============================================================================
 const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
+const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
 // =============================================================================
 // TRANSPORT CONFIGURATION
@@ -241,6 +242,7 @@ void setup() {
   // No need to register handlers - VWIRE_RECEIVE() macros auto-register!
   Vwire.setDebug(true);
   Vwire.config(AUTH_TOKEN);
+  Vwire.setDeviceId(DEVICE_ID);  // Use Device ID for MQTT topics
   Vwire.setTransport(TRANSPORT);
   
   // Connect

@@ -14,12 +14,14 @@
 #define WIFI_SSID     "YOUR_WIFI"
 #define WIFI_PASS     "YOUR_PASSWORD"
 #define AUTH_TOKEN    "YOUR_AUTH_TOKEN"
+#define DEVICE_ID     "YOUR_DEVICE_ID"  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
 void setup() {
   Serial.begin(115200);
   
   // Configure and connect (uses default Vwire server with TLS)
   Vwire.config(AUTH_TOKEN);
+  Vwire.setDeviceId(DEVICE_ID);
   Vwire.begin(WIFI_SSID, WIFI_PASS);
 }
 

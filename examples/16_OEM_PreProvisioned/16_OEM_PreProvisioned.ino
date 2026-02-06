@@ -52,15 +52,15 @@
 // IMPORTANT: Replace this with the AUTH TOKEN from Admin Panel CSV
 // The auth token is the secret key used for device authentication
 // Format: iot_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (36 chars)
-#define VWIRE_AUTH_TOKEN  "iot_V1StGXR8_Z5jdHi6B-myT_n09sdnW3"
+#define VWIRE_AUTH_TOKEN  "YOUR_AUTH_TOKEN_FROM_ADMIN_PANEL"
 
 // Device ID for display purposes (shown on QR code sticker, etc.)
 // This helps users identify their device during claiming
-#define VWIRE_DEVICE_ID_DISPLAY   "VW-ABC123"
+#define VWIRE_DEVICE_ID_DISPLAY   "VW-XXXXXX"
 
 // Device metadata (optional, helps with tracking)
-#define VWIRE_BATCH_ID    "BATCH-2025-001"
-#define VWIRE_SERIAL_NUM  "SN-00001"
+#define VWIRE_BATCH_ID    "YOUR_BATCH_ID"
+#define VWIRE_SERIAL_NUM  "YOUR_SERIAL_NUMBER"
 
 // =============================================================================
 // DEVICE CONFIGURATION

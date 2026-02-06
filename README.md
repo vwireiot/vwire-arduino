@@ -30,7 +30,7 @@ Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 - 📡 **Standard MQTT**: Plain TCP support (port 1883) for boards without SSL
 - 📊 **Virtual Pins**: Bidirectional data exchange with dashboard (256 pins)
 - ⏱️ **VwireTimer**: Non-blocking timers for all Arduino boards
-- 🔔 **Notifications**: Push notifications and email alerts
+- 🔔 **Notifications**: Push notifications, email alerts, and persistent alarms
 - 🔄 **OTA Updates**: Over-the-air firmware updates (ESP32/ESP8266)
 - ⚡ **Auto Reconnect**: Automatic connection recovery with configurable intervals
 - 🎯 **Multi-Platform**: ESP32, ESP8266, RP2040, SAMD, and more
@@ -75,6 +75,7 @@ const char* WIFI_PASS = "YOUR_PASSWORD";
 
 // Vwire IOT Authentication
 const char* AUTH_TOKEN = "YOUR_AUTH_TOKEN";
+const char* DEVICE_ID  = "YOUR_DEVICE_ID"; // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
 // Transport Configuration (optional - TLS is default)
 // VWIRE_TRANSPORT_TCP_SSL (port 8883) - Encrypted, RECOMMENDED
@@ -108,6 +109,8 @@ void setup() {
   
   // Configure Vwire (uses default server: mqtt.vwire.io)
   Vwire.config(AUTH_TOKEN);
+  // Recommended (Option A): use Device ID for topic routing (token remains only credential)
+  Vwire.setDeviceId(DEVICE_ID);
   Vwire.setTransport(TRANSPORT);
   Vwire.setDebug(true);
   
@@ -1032,6 +1035,43 @@ Send push notification to mobile app.
 Vwire.notify("Temperature alert! Sensor reading: 85°C");
 ```
 
+#### `Vwire.alarm(message [, sound] [, priority])`
+Send persistent alarm notification with sound and vibration. **Requires PRO plan or higher.**
+
+Triggers a persistent alarm on the mobile device that plays a looping ringtone and requires user interaction to stop. Unlike `notify()`, alarms cannot be dismissed by tapping - they require explicit STOP or SNOOZE action.
+
+```cpp
+// Basic alarm (default sound, normal priority)
+Vwire.alarm("Fire detected in zone A!");
+
+// Alarm with urgent sound
+Vwire.alarm("Security breach!", "urgent");
+
+// Alarm with warning sound and high priority
+Vwire.alarm("Critical system failure!", "warning", 3);
+```
+
+**Parameters:**
+- `message`: Alarm message text (required)
+- `sound`: Alarm sound name (optional, default: `"default"`)
+- `priority`: Priority level 1-3 (optional, default: 1)
+
+**Available Sounds:**
+| Sound | Description |
+|-------|-------------|
+| `"default"` | Standard alarm tone |
+| `"urgent"` | High-priority urgent sound |
+| `"warning"` | Moderate warning sound |
+
+**Priority Levels:**
+| Level | Description |
+|:-----:|-------------|
+| `1` | Normal (default) |
+| `2` | High |
+| `3` | Critical |
+
+**Note:** Alarms are automatically deduplicated within 10 seconds to prevent spam. Only available for paid plans (Pro or higher).
+
 #### `Vwire.email(subject, body)`
 Send email notification.
 
@@ -1051,7 +1091,10 @@ Vwire.log("System initialized successfully");
 ### Device Information
 
 #### `Vwire.getDeviceId()`
-Get device ID (first 36 chars of auth token).
+Get the current device identifier used in MQTT topics.
+
+- If you call `Vwire.setDeviceId(DEVICE_ID)`, this returns that Device ID (recommended).
+- Otherwise it falls back to using the auth token as the topic identifier (legacy mode).
 
 ```cpp
 Serial.printf("Device ID: %s\n", Vwire.getDeviceId());

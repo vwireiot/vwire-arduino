@@ -56,6 +56,7 @@
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
+const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
 // Transport: Use TCP_SSL (port 8883) for TLS encryption (recommended)
 //            Use TCP (port 1883) for boards without SSL support
@@ -176,6 +177,7 @@ void setup() {
   // Step 1: Configure Vwire connection
   // -----------------------------------------
   Vwire.config(AUTH_TOKEN);
+  Vwire.setDeviceId(DEVICE_ID);  // Use Device ID for MQTT topics
   Vwire.setTransport(TRANSPORT);
   Vwire.setDebug(true);  // Enable debug output
   

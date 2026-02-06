@@ -754,9 +754,34 @@ public:
   void notify(const char* message);
   
   /**
+   * @brief Send alarm notification (persistent with sound/vibration)
+   * @param message Alarm message text
+   * @note Requires PRO plan or higher. Free users are silently ignored.
+   */
+  void alarm(const char* message);
+  
+  /**
+   * @brief Send alarm notification with custom sound
+   * @param message Alarm message text
+   * @param sound Sound name: "default", "urgent", or "warning"
+   * @note Requires PRO plan or higher. Free users are silently ignored.
+   */
+  void alarm(const char* message, const char* sound);
+  
+  /**
+   * @brief Send alarm notification with full options
+   * @param message Alarm message text
+   * @param sound Sound name: "default", "urgent", or "warning"
+   * @param priority Priority level: 1=normal, 2=high, 3=critical
+   * @note Requires PRO plan or higher. Free users are silently ignored.
+   */
+  void alarm(const char* message, const char* sound, uint8_t priority);
+  
+  /**
    * @brief Send email notification
    * @param subject Email subject
    * @param body Email body
+   * @note Requires PRO plan or higher. Free users are silently ignored.
    */
   void email(const char* subject, const char* body);
   
