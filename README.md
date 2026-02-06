@@ -945,7 +945,7 @@ void handleRGB(VirtualPin& pin) {
 
 ### VwireTimer Class
 
-The `VwireTimer` class provides non-blocking timer functionality, similar to BlynkTimer. It uses `millis()` internally and works on **all Arduino boards** (not just ESP).
+The `VwireTimer` class provides non-blocking timer functionality. It uses `millis()` internally and works on **all Arduino boards** (not just ESP).
 
 #### Basic Usage
 
