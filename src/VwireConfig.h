@@ -91,6 +91,24 @@
 #endif
 
 // =============================================================================
+// CLOUD OTA CONFIGURATION
+// =============================================================================
+/**
+ * @brief Enable Cloud OTA firmware updates via VWire server
+ *
+ * When enabled, the device can receive firmware update commands from the
+ * VWire cloud platform via MQTT and download binaries over HTTP(S).
+ * Only available on boards with VWIRE_HAS_OTA (ESP32/ESP8266).
+ *
+ * To disable, define VWIRE_DISABLE_CLOUD_OTA before including Vwire.h.
+ */
+#if VWIRE_HAS_OTA && !defined(VWIRE_DISABLE_CLOUD_OTA)
+  #define VWIRE_ENABLE_CLOUD_OTA 1
+#else
+  #define VWIRE_ENABLE_CLOUD_OTA 0
+#endif
+
+// =============================================================================
 // DEFAULT SERVER CONFIGURATION
 // =============================================================================
 

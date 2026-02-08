@@ -33,12 +33,18 @@
   #if VWIRE_HAS_OTA
     #include <ArduinoOTA.h>
   #endif
+  #if VWIRE_ENABLE_CLOUD_OTA
+    #include <HTTPUpdate.h>
+  #endif
   
 #elif defined(VWIRE_BOARD_ESP8266)
   #include <ESP8266WiFi.h>
   #include <WiFiClientSecure.h>
   #if VWIRE_HAS_OTA
     #include <ArduinoOTA.h>
+  #endif
+  #if VWIRE_ENABLE_CLOUD_OTA
+    #include <ESP8266httpUpdate.h>
   #endif
   
 #elif defined(VWIRE_BOARD_RP2040)
@@ -861,6 +867,31 @@ public:
   #endif
   
   // =========================================================================
+  // CLOUD OTA (ESP32/ESP8266 only)
+  // =========================================================================
+  
+  #if VWIRE_ENABLE_CLOUD_OTA
+  /**
+   * @brief Enable Cloud OTA firmware updates from VWire server
+   * 
+   * When enabled, the device listens for OTA commands from the VWire platform
+   * via MQTT and automatically downloads and installs firmware updates.
+   * The device reports ota:true in its heartbeat so the server knows
+   * cloud OTA is available.
+   * 
+   * @note Requires WiFi connection and MQTT connection to VWire server
+   * @note Only ESP32 and ESP8266 boards support cloud OTA
+   */
+  void enableCloudOTA();
+  
+  /**
+   * @brief Check if cloud OTA is enabled
+   * @return true if cloud OTA is enabled
+   */
+  bool isCloudOTAEnabled();
+  #endif
+  
+  // =========================================================================
   // DEBUG METHODS
   // =========================================================================
   
@@ -923,6 +954,14 @@ private:
   // OTA
   #if VWIRE_HAS_OTA
   bool _otaEnabled;                      ///< OTA updates enabled
+  #endif
+  
+  // Cloud OTA
+  #if VWIRE_ENABLE_CLOUD_OTA
+  bool _cloudOtaEnabled;                 ///< Cloud OTA updates enabled
+  void _handleCloudOTA(const char* payload);
+  void _ensureMqttForOTA();              ///< Reconnect MQTT after OTA download if disconnected
+  void _publishOTAStatus(const char* updateId, const char* status, int progress, const char* error = nullptr);
   #endif
   
   // Reliable Delivery

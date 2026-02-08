@@ -62,6 +62,9 @@ VwireClass::VwireClass()
   #if VWIRE_HAS_OTA
   , _otaEnabled(false)
   #endif
+  #if VWIRE_ENABLE_CLOUD_OTA
+  , _cloudOtaEnabled(false)
+  #endif
 {
   memset(_deviceId, 0, sizeof(_deviceId));
   memset(_pinHandlers, 0, sizeof(_pinHandlers));
@@ -267,6 +270,15 @@ bool VwireClass::_connectMQTT() {
       _debugPrintf("[Vwire] Subscribed to: %s (ACK)", ackTopic.c_str());
     }
     
+    // Subscribe to Cloud OTA topic (if enabled)
+    #if VWIRE_ENABLE_CLOUD_OTA
+    if (_cloudOtaEnabled) {
+      String otaTopic = _buildTopic("ota");
+      _mqttClient.subscribe(otaTopic.c_str(), 1);
+      _debugPrintf("[Vwire] Subscribed to: %s (Cloud OTA)", otaTopic.c_str());
+    }
+    #endif
+    
     _startTime = millis();
     
     // Call connect handler (manual registration first, then auto-registered)
@@ -416,6 +428,17 @@ void VwireClass::_handleMessage(char* topic, byte* payload, unsigned int length)
   if (_messageHandler) {
     _messageHandler(topic, payloadStr);
   }
+  
+  // Check for Cloud OTA topic: vwire/{deviceId}/ota
+  #if VWIRE_ENABLE_CLOUD_OTA
+  if (_cloudOtaEnabled) {
+    char* otaPos = strstr(topic, "/ota");
+    if (otaPos && *(otaPos + 4) == '\0') {
+      _handleCloudOTA(payloadStr);
+      return;
+    }
+  }
+  #endif
   
   // Check for ACK topic first: vwire/{deviceId}/ack
   char* ackPos = strstr(topic, "/ack");
@@ -715,6 +738,188 @@ void VwireClass::handleOTA() {
 #endif
 
 // =============================================================================
+// CLOUD OTA (Firmware update from VWire server)
+// =============================================================================
+#if VWIRE_ENABLE_CLOUD_OTA
+
+void VwireClass::enableCloudOTA() {
+  _cloudOtaEnabled = true;
+  _debugPrint("[Vwire] Cloud OTA enabled");
+  
+  // If already connected, subscribe to OTA topic immediately
+  if (connected()) {
+    String otaTopic = _buildTopic("ota");
+    _mqttClient.subscribe(otaTopic.c_str(), 1);
+    _debugPrintf("[Vwire] Subscribed to: %s (Cloud OTA)", otaTopic.c_str());
+  }
+}
+
+bool VwireClass::isCloudOTAEnabled() {
+  return _cloudOtaEnabled;
+}
+
+void VwireClass::_ensureMqttForOTA() {
+  if (_mqttClient.connected()) return;
+  
+  _debugPrint("[Vwire] MQTT disconnected during OTA download, reconnecting...");
+  
+  // Quick reconnect attempts (3 tries, 1 second apart)
+  for (int i = 0; i < 3; i++) {
+    _setupClient();
+    if (_connectMQTT()) {
+      _debugPrint("[Vwire] MQTT reconnected for OTA status report");
+      return;
+    }
+    delay(1000);
+  }
+  
+  _debugPrint("[Vwire] MQTT reconnect failed - OTA status may not be reported");
+}
+
+void VwireClass::_publishOTAStatus(const char* updateId, const char* status, int progress, const char* error) {
+  if (!connected()) return;
+  
+  char topic[96];
+  char buffer[256];
+  
+  snprintf(topic, sizeof(topic), "vwire/%s/ota_status", _deviceId);
+  
+  if (error) {
+    snprintf(buffer, sizeof(buffer),
+      "{\"updateId\":\"%s\",\"status\":\"%s\",\"progress\":%d,\"error\":\"%s\",\"version\":\"%s\"}",
+      updateId, status, progress, error, VWIRE_VERSION);
+  } else {
+    snprintf(buffer, sizeof(buffer),
+      "{\"updateId\":\"%s\",\"status\":\"%s\",\"progress\":%d,\"version\":\"%s\"}",
+      updateId, status, progress, VWIRE_VERSION);
+  }
+  
+  _mqttClient.publish(topic, buffer, true);  // retained so server gets it
+  _debugPrintf("[Vwire] OTA Status: %s %d%%", status, progress);
+}
+
+void VwireClass::_handleCloudOTA(const char* payload) {
+  _debugPrint("[Vwire] Cloud OTA command received");
+  
+  // Parse JSON payload: {url, version, checksum, size, updateId}
+  StaticJsonDocument<512> doc;
+  DeserializationError err = deserializeJson(doc, payload);
+  
+  if (err) {
+    _debugPrintf("[Vwire] OTA JSON parse error: %s", err.c_str());
+    return;
+  }
+  
+  const char* url = doc["url"];
+  const char* version = doc["version"];
+  const char* checksum = doc["checksum"];
+  int size = doc["size"] | 0;
+  const char* updateId = doc["updateId"];
+  
+  if (!url || !updateId) {
+    _debugPrint("[Vwire] OTA command missing required fields");
+    return;
+  }
+  
+  _debugPrintf("[Vwire] OTA: url=%s", url);
+  _debugPrintf("[Vwire] OTA: version=%s size=%d", version ? version : "?", size);
+  
+  // Report downloading status
+  _publishOTAStatus(updateId, "downloading", 0);
+  
+  // Give MQTT time to send the status message
+  _mqttClient.loop();
+  delay(100);
+  
+  // Determine if HTTPS is needed
+  bool useHttps = (strncmp(url, "https", 5) == 0);
+  
+  // Create appropriate client for HTTP or HTTPS
+  WiFiClient plainClient;
+  WiFiClientSecure secureClient;
+  if (useHttps) {
+    secureClient.setInsecure();  // Skip certificate verification (firmware has its own checksum)
+    _debugPrint("[Vwire] OTA: Using HTTPS for firmware download");
+  }
+  WiFiClient& updateClient = useHttps ? (WiFiClient&)secureClient : plainClient;
+  
+  #if defined(VWIRE_BOARD_ESP32)
+  // ESP32: Use HTTPUpdate
+  httpUpdate.setLedPin(LED_BUILTIN, LOW);
+  httpUpdate.rebootOnUpdate(false);  // Don't auto-reboot, we want to send status first
+  
+  t_httpUpdate_return ret = httpUpdate.update(updateClient, url);
+  
+  // MQTT likely disconnected during the blocking download (keep-alive timeout).
+  // Reconnect so we can publish the OTA result status before rebooting.
+  _ensureMqttForOTA();
+  
+  switch (ret) {
+    case HTTP_UPDATE_FAILED:
+      _debugPrintf("[Vwire] OTA FAILED: (%d) %s", 
+        httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+      _publishOTAStatus(updateId, "failed", 0, httpUpdate.getLastErrorString().c_str());
+      _mqttClient.loop();
+      delay(200);
+      break;
+      
+    case HTTP_UPDATE_NO_UPDATES:
+      _debugPrint("[Vwire] OTA: No update available");
+      _publishOTAStatus(updateId, "failed", 0, "No update available");
+      _mqttClient.loop();
+      delay(200);
+      break;
+      
+    case HTTP_UPDATE_OK:
+      _debugPrint("[Vwire] OTA SUCCESS - Rebooting...");
+      _publishOTAStatus(updateId, "completed", 100);
+      _mqttClient.loop();
+      delay(1000);  // Extra time to ensure MQTT message is sent
+      ESP.restart();
+      break;
+  }
+  
+  #elif defined(VWIRE_BOARD_ESP8266)
+  // ESP8266: Use ESPhttpUpdate
+  ESPhttpUpdate.setLedPin(LED_BUILTIN, LOW);
+  ESPhttpUpdate.rebootOnUpdate(false);
+  
+  t_httpUpdate_return ret = ESPhttpUpdate.update(updateClient, url);
+  
+  // MQTT likely disconnected during the blocking download (keep-alive timeout).
+  // Reconnect so we can publish the OTA result status before rebooting.
+  _ensureMqttForOTA();
+  
+  switch (ret) {
+    case HTTP_UPDATE_FAILED:
+      _debugPrintf("[Vwire] OTA FAILED: (%d) %s",
+        ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+      _publishOTAStatus(updateId, "failed", 0, ESPhttpUpdate.getLastErrorString().c_str());
+      _mqttClient.loop();
+      delay(200);
+      break;
+      
+    case HTTP_UPDATE_NO_UPDATES:
+      _debugPrint("[Vwire] OTA: No update available");
+      _publishOTAStatus(updateId, "failed", 0, "No update available");
+      _mqttClient.loop();
+      delay(200);
+      break;
+      
+    case HTTP_UPDATE_OK:
+      _debugPrint("[Vwire] OTA SUCCESS - Rebooting...");
+      _publishOTAStatus(updateId, "completed", 100);
+      _mqttClient.loop();
+      delay(1000);  // Extra time to ensure MQTT message is sent
+      ESP.restart();
+      break;
+  }
+  #endif
+}
+
+#endif // VWIRE_ENABLE_CLOUD_OTA
+
+// =============================================================================
 // HELPERS
 // =============================================================================
 String VwireClass::_buildTopic(const char* type, int pin) {
@@ -742,9 +947,22 @@ void VwireClass::_sendHeartbeat() {
   String ipStr = WiFi.localIP().toString();
   
   snprintf(topic, sizeof(topic), "vwire/%s/heartbeat", _deviceId);
+  
+  #if VWIRE_ENABLE_CLOUD_OTA
+  if (_cloudOtaEnabled) {
+    snprintf(buffer, sizeof(buffer), 
+      "{\"uptime\":%lu,\"heap\":%lu,\"rssi\":%d,\"ip\":\"%s\",\"fw\":\"%s\",\"ota\":true}",
+      getUptime(), getFreeHeap(), getWiFiRSSI(), ipStr.c_str(), VWIRE_VERSION);
+  } else {
+    snprintf(buffer, sizeof(buffer), 
+      "{\"uptime\":%lu,\"heap\":%lu,\"rssi\":%d,\"ip\":\"%s\",\"fw\":\"%s\"}",
+      getUptime(), getFreeHeap(), getWiFiRSSI(), ipStr.c_str(), VWIRE_VERSION);
+  }
+  #else
   snprintf(buffer, sizeof(buffer), 
     "{\"uptime\":%lu,\"heap\":%lu,\"rssi\":%d,\"ip\":\"%s\",\"fw\":\"%s\"}",
     getUptime(), getFreeHeap(), getWiFiRSSI(), ipStr.c_str(), VWIRE_VERSION);
+  #endif
   
   _mqttClient.publish(topic, buffer);
 }
