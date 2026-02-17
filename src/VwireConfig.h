@@ -153,8 +153,8 @@ typedef enum {
 // TIMING CONFIGURATION
 // =============================================================================
 
-/** @brief Default heartbeat interval (30 seconds) */
-#define VWIRE_DEFAULT_HEARTBEAT_INTERVAL 30000
+/** @brief Default heartbeat interval (15 seconds) */
+#define VWIRE_DEFAULT_HEARTBEAT_INTERVAL 15000
 
 /** @brief Default reconnect attempt interval (5 seconds) */
 #define VWIRE_DEFAULT_RECONNECT_INTERVAL 5000

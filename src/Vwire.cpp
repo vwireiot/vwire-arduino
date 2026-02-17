@@ -67,6 +67,7 @@ VwireClass::VwireClass()
   #endif
 {
   memset(_deviceId, 0, sizeof(_deviceId));
+  memset(_hostname, 0, sizeof(_hostname));
   memset(_pinHandlers, 0, sizeof(_pinHandlers));
   memset(_pendingMessages, 0, sizeof(_pendingMessages));
   _vwireInstance = this;
@@ -117,6 +118,14 @@ void VwireClass::setDeviceId(const char* deviceId) {
     strncpy(_deviceId, deviceId, VWIRE_MAX_TOKEN_LENGTH - 1);
     _deviceId[VWIRE_MAX_TOKEN_LENGTH - 1] = '\0';
     _debugPrintf("[Vwire] Custom device ID set: %s", _deviceId);
+  }
+}
+
+void VwireClass::setHostname(const char* hostname) {
+  if (hostname && strlen(hostname) > 0) {
+    strncpy(_hostname, hostname, sizeof(_hostname) - 1);
+    _hostname[sizeof(_hostname) - 1] = '\0';
+    _debugPrintf("[Vwire] Hostname set: %s", _hostname);
   }
 }
 
@@ -204,6 +213,25 @@ bool VwireClass::_connectWiFi(const char* ssid, const char* password) {
   _debugPrintf("[Vwire] Connecting to WiFi: %s", ssid);
   
   WiFi.mode(WIFI_STA);
+  
+  // Set WiFi hostname for network discovery (mDNS / DHCP)
+  // Priority: user-set _hostname > default "vwire-<deviceId>"
+  String wifiHostname;
+  if (strlen(_hostname) > 0) {
+    wifiHostname = String(_hostname);
+  } else {
+    wifiHostname = "vwire-" + String(_deviceId).substring(0, 8);
+    // Store the default so enableOTA() can reuse it
+    strncpy(_hostname, wifiHostname.c_str(), sizeof(_hostname) - 1);
+    _hostname[sizeof(_hostname) - 1] = '\0';
+  }
+  #if defined(VWIRE_BOARD_ESP32)
+  WiFi.setHostname(wifiHostname.c_str());
+  #elif defined(VWIRE_BOARD_ESP8266)
+  WiFi.hostname(wifiHostname.c_str());
+  #endif
+  _debugPrintf("[Vwire] WiFi hostname: %s", wifiHostname.c_str());
+  
   WiFi.begin(ssid, password);
   
   unsigned long startAttempt = millis();
@@ -326,7 +354,14 @@ bool VwireClass::begin() {
 }
 
 void VwireClass::run() {
-  // Process MQTT messages FIRST - critical for low latency command reception
+  // Handle local OTA FIRST - must run every loop iteration regardless of MQTT state
+  #if VWIRE_HAS_OTA
+  if (_otaEnabled) {
+    ArduinoOTA.handle();
+  }
+  #endif
+  
+  // Process MQTT messages - critical for low latency command reception
   if (_mqttClient.connected()) {
     _mqttClient.loop();
     
@@ -348,13 +383,6 @@ void VwireClass::run() {
   
   // Allow ESP8266/ESP32 network stack to process
   yield();
-  
-  // Handle OTA if enabled
-  #if VWIRE_HAS_OTA
-  if (_otaEnabled) {
-    ArduinoOTA.handle();
-  }
-  #endif
   
   // Check WiFi
   if (WiFi.status() != WL_CONNECTED) {
@@ -700,12 +728,37 @@ uint32_t VwireClass::getUptime() {
 // =============================================================================
 #if VWIRE_HAS_OTA
 void VwireClass::enableOTA(const char* hostname, const char* password) {
+  // Determine the OTA hostname with proper fallback chain:
+  // 1. Explicit hostname parameter passed to enableOTA()
+  // 2. User-set hostname via setHostname()
+  // 3. Default "vwire-<deviceId>"
+  String otaHostname;
   if (hostname) {
-    ArduinoOTA.setHostname(hostname);
+    otaHostname = String(hostname);
+    // If user didn't set a WiFi hostname, sync WiFi hostname to match OTA
+    if (strlen(_hostname) == 0) {
+      strncpy(_hostname, hostname, sizeof(_hostname) - 1);
+      _hostname[sizeof(_hostname) - 1] = '\0';
+      // Update WiFi hostname to match (if WiFi is already connected)
+      if (WiFi.status() == WL_CONNECTED) {
+        #if defined(VWIRE_BOARD_ESP32)
+        WiFi.setHostname(_hostname);
+        #elif defined(VWIRE_BOARD_ESP8266)
+        WiFi.hostname(_hostname);
+        #endif
+        _debugPrintf("[Vwire] WiFi hostname synced to OTA: %s", _hostname);
+      }
+    }
+  } else if (strlen(_hostname) > 0) {
+    otaHostname = String(_hostname);
   } else {
-    String defaultHostname = "vwire-" + String(_deviceId).substring(0, 8);
-    ArduinoOTA.setHostname(defaultHostname.c_str());
+    otaHostname = "vwire-" + String(_deviceId).substring(0, 8);
+    // Store default so it's consistent everywhere
+    strncpy(_hostname, otaHostname.c_str(), sizeof(_hostname) - 1);
+    _hostname[sizeof(_hostname) - 1] = '\0';
   }
+  ArduinoOTA.setHostname(otaHostname.c_str());
+  _debugPrintf("[Vwire] OTA hostname: %s", otaHostname.c_str());
   
   if (password) {
     ArduinoOTA.setPassword(password);

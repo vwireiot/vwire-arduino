@@ -525,6 +525,22 @@ public:
   void setDeviceId(const char* deviceId);
   
   /**
+   * @brief Set custom WiFi/network hostname for the device
+   * 
+   * Sets the hostname used for WiFi (DHCP/mDNS) and local OTA discovery.
+   * If not set, defaults to "vwire-<first 8 chars of deviceId>".
+   * 
+   * When enableOTA() is called:
+   * - If a hostname was passed to enableOTA(), it takes priority for OTA
+   *   and also sets the WiFi hostname if setHostname() wasn't called.
+   * - If no hostname was passed to enableOTA(), the hostname set here is used.
+   * 
+   * @param hostname Desired hostname (max 32 characters)
+   * @note Call before begin() so WiFi uses this hostname from the start
+   */
+  void setHostname(const char* hostname);
+  
+  /**
    * @brief Set transport protocol
    * @param transport VWIRE_TRANSPORT_TCP or VWIRE_TRANSPORT_TCP_SSL
    */
@@ -923,6 +939,7 @@ private:
   VwireState _state;                    ///< Current connection state
   VwireError _lastError;                ///< Last error code
   char _deviceId[VWIRE_MAX_TOKEN_LENGTH]; ///< Device identifier
+  char _hostname[33];                    ///< User-defined hostname (max 32 chars + null)
   bool _debug;                          ///< Debug output enabled
   Stream* _debugStream;                 ///< Debug output stream
   unsigned long _startTime;             ///< Connection start time
