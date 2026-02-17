@@ -204,7 +204,7 @@ void VwireClass::_setupClient() {
   _mqttClient.setServer(_settings.server, _settings.port);
   _mqttClient.setCallback(_mqttCallbackWrapper);
   _mqttClient.setBufferSize(VWIRE_MAX_PAYLOAD_LENGTH);
-  _mqttClient.setKeepAlive(30);       // 30 second keepalive (faster disconnect detection)
+  _mqttClient.setKeepAlive(10);       // 10 second keepalive (EMQX detects offline within ~15s)
   _mqttClient.setSocketTimeout(5);    // 5 second socket timeout (faster error detection)
 }
 
