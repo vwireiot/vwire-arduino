@@ -6,14 +6,14 @@
   "authors": [
     {
       "name": "Vwire IOT Team",
-      "email": "support@vwireiot.com"
+      "email": "support@vwire.io"
     }
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/vwireiot/vwire-arduino.git"
   },
-  "homepage": "https://vwireiot.com",
+  "homepage": "https://vwire.io",
   "license": "MIT",
   "frameworks": ["arduino"],
   "platforms": ["espressif32", "espressif8266", "atmelavr", "atmelsam", "raspberrypi"],
