@@ -59,6 +59,7 @@ VwireClass::VwireClass()
   , _messageHandler(nullptr)
   , _deliveryCallback(nullptr)
   , _msgIdCounter(0)
+  , _gpioEnabled(false)
   #if VWIRE_HAS_OTA
   , _otaEnabled(false)
   #endif
@@ -307,6 +308,13 @@ bool VwireClass::_connectMQTT() {
     }
     #endif
     
+    // Subscribe to GPIO pinconfig topic (if GPIO enabled)
+    if (_gpioEnabled) {
+      String pinconfigTopic = _buildTopic("pinconfig");
+      _mqttClient.subscribe(pinconfigTopic.c_str(), 1);
+      _debugPrintf("[Vwire] Subscribed to: %s (GPIO config)", pinconfigTopic.c_str());
+    }
+    
     _startTime = millis();
     
     // Call connect handler (manual registration first, then auto-registered)
@@ -376,6 +384,12 @@ void VwireClass::run() {
       _lastHeartbeat = now;
       _sendHeartbeat();
     }
+    
+    // Poll GPIO input pins (if enabled)
+    if (_gpioEnabled) {
+      _gpio.poll(_gpioPublishCallback);
+    }
+    
     return;  // Fast path - everything is good
   }
   
@@ -468,6 +482,15 @@ void VwireClass::_handleMessage(char* topic, byte* payload, unsigned int length)
   }
   #endif
   
+  // Check for GPIO pinconfig topic: vwire/{deviceId}/pinconfig
+  if (_gpioEnabled) {
+    char* pinconfigPos = strstr(topic, "/pinconfig");
+    if (pinconfigPos && *(pinconfigPos + 10) == '\0') {
+      _handlePinConfig(payloadStr);
+      return;
+    }
+  }
+  
   // Check for ACK topic first: vwire/{deviceId}/ack
   char* ackPos = strstr(topic, "/ack");
   if (ackPos && *(ackPos + 4) == '\0') {
@@ -500,7 +523,22 @@ void VwireClass::_handleMessage(char* topic, byte* payload, unsigned int length)
   char* pinStr = cmdPos + 5;  // Skip "/cmd/"
   if (!pinStr || *pinStr == '\0') return;
   
-  // Parse pin number (handle V prefix)
+  // Check if this is a D (digital) or A (analog) pin command → route to GPIO manager
+  if (_gpioEnabled && (*pinStr == 'D' || *pinStr == 'd' || *pinStr == 'A' || *pinStr == 'a')) {
+    // Build pin name (uppercase)
+    char gpioName[6];
+    strncpy(gpioName, pinStr, sizeof(gpioName) - 1);
+    gpioName[sizeof(gpioName) - 1] = '\0';
+    for (char* c = gpioName; *c; c++) *c = toupper(*c);
+    
+    int value = atoi(payloadStr);
+    if (_gpio.handleCommand(gpioName, value)) {
+      _debugPrintf("[Vwire] GPIO cmd: %s = %d", gpioName, value);
+    }
+    return;
+  }
+  
+  // Parse pin number (handle V prefix — virtual pins)
   int pin = -1;
   if (*pinStr == 'V' || *pinStr == 'v') {
     pin = atoi(pinStr + 1);
@@ -1022,6 +1060,87 @@ void VwireClass::_sendHeartbeat() {
 
 void VwireClass::_setError(VwireError error) {
   _lastError = error;
+}
+
+// =============================================================================
+// GPIO PIN CONTROL
+// =============================================================================
+
+void VwireClass::enableGPIO() {
+  _gpioEnabled = true;
+}
+
+bool VwireClass::isGPIOEnabled() const {
+  return _gpioEnabled;
+}
+
+void VwireClass::gpioWrite(const char* pinName, int value) {
+  if (!_gpioEnabled) return;
+  _gpio.handleCommand(pinName, value);
+}
+
+int VwireClass::gpioRead(const char* pinName) {
+  if (!_gpioEnabled) return -1;
+  return _gpio.getPinValue(pinName);
+}
+
+bool VwireClass::addGPIOPin(const char* pinName, VwireGPIOMode mode,
+                             uint16_t readInterval) {
+  _gpioEnabled = true;  // auto-enable if user adds pins manually
+  return _gpio.addPin(pinName, mode, readInterval);
+}
+
+bool VwireClass::addGPIOPin(const char* pinName, uint8_t gpioNumber,
+                             VwireGPIOMode mode, uint16_t readInterval) {
+  _gpioEnabled = true;  // auto-enable if user adds pins manually
+  return _gpio.addPin(pinName, gpioNumber, mode, readInterval);
+}
+
+void VwireClass::gpioSend(const char* pinName, int value) {
+  if (!connected()) {
+    _setError(VWIRE_ERR_NOT_CONNECTED);
+    return;
+  }
+  _publishGPIOValue(pinName, value);
+}
+
+VwireGPIOManager& VwireClass::getGPIO() {
+  return _gpio;
+}
+
+void VwireClass::_handlePinConfig(const char* payload) {
+  int count = _gpio.applyConfig(payload);
+  if (count >= 0) {
+    _debugPrintf("[Vwire] GPIO pinconfig applied: %d pins configured", count);
+  } else {
+    _debugPrint("[Vwire] GPIO pinconfig: parse error");
+  }
+}
+
+void VwireClass::_publishGPIOValue(const char* pinName, int value) {
+  if (!connected()) return;
+  
+  // Build topic: vwire/{deviceId}/pin/{pinName}
+  char topic[96];
+  snprintf(topic, sizeof(topic), "vwire/%s/pin/%s", _deviceId, pinName);
+  
+  // Convert value to string
+  char valStr[16];
+  snprintf(valStr, sizeof(valStr), "%d", value);
+  
+  unsigned int len = strlen(valStr);
+  _mqttClient.beginPublish(topic, len, _settings.dataRetain);
+  _mqttClient.print(valStr);
+  _mqttClient.endPublish();
+  
+  _debugPrintf("[Vwire] GPIO send %s = %d", pinName, value);
+}
+
+// Static callback for GPIO manager polling
+void VwireClass::_gpioPublishCallback(const char* pinName, int value) {
+  if (_vwireInstance) {
+    _vwireInstance->_publishGPIOValue(pinName, value);
+  }
 }
 
 // =============================================================================

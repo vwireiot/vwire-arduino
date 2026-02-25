@@ -23,6 +23,7 @@
 #include <Arduino.h>
 #include "VwireConfig.h"
 #include "VwireTimer.h"
+#include "VwireGPIO.h"
 
 // =============================================================================
 // PLATFORM-SPECIFIC INCLUDES
@@ -426,6 +427,20 @@ void _vwireRegisterDisconnectHandler(ConnectionHandler handler);
  *       Vwire.virtualSend(100, value);
  *       Vwire.virtualSend(255, value);
  */
+// =============================================================================
+// DIGITAL PIN DEFINITIONS (D0–D13 common, up to D99 via cloud config)
+// =============================================================================
+// NOTE: These macros produce pin NUMBERS (0–99). The library prefixes "D"
+// when building MQTT topics, so D0 maps to topic vwire/{id}/pin/D0.
+// They are intentionally separate from virtual pin numbers (V0 etc.).
+
+// Use these with Vwire.gpioWrite("D0", value) or in pin name strings.
+// Hardware GPIO numbers are configured via the cloud pinconfig message.
+
+// =============================================================================
+// VIRTUAL PIN DEFINITIONS
+// =============================================================================
+
 #define V0  0
 #define V1  1
 #define V2  2
@@ -908,6 +923,86 @@ public:
   #endif
   
   // =========================================================================
+  // GPIO PIN CONTROL
+  // =========================================================================
+
+  /**
+   * @brief Enable automatic GPIO pin management
+   *
+   * When enabled, the device:
+   * - Subscribes to the `pinconfig` MQTT topic on connect
+   * - Automatically configures hardware pin modes from cloud settings
+   * - Periodically reads input pins and publishes changed values
+   * - Handles incoming commands for output pins (D* and A* topics)
+   *
+   * @note Call before begin(). GPIO polling runs inside run().
+   */
+  void enableGPIO();
+
+  /**
+   * @brief Check if GPIO management is enabled
+   * @return true if enableGPIO() was called
+   */
+  bool isGPIOEnabled() const;
+
+  /**
+   * @brief Manually write a value to a GPIO pin
+   * @param pinName Pin name string (e.g., "D13", "A0")
+   * @param value   Value to write (0/1 for digital, 0-255 for PWM)
+   * @note Pin must be configured as OUTPUT or PWM via cloud or addGPIOPin().
+   */
+  void gpioWrite(const char* pinName, int value);
+
+  /**
+   * @brief Read current value of a managed GPIO pin
+   * @param pinName Pin name string (e.g., "D2", "A0")
+   * @return Last read value, or -1 if pin not managed
+   */
+  int gpioRead(const char* pinName);
+
+  /**
+   * @brief Manually add a GPIO pin (without waiting for cloud config)
+   *
+   * The hardware GPIO number is automatically resolved from the pin name
+   * using platform-specific mapping (e.g., D4→GPIO2 on ESP8266/NodeMCU).
+   *
+   * @param pinName      Cloud pin name (e.g., "D5", "A1")
+   * @param mode         Pin mode (VWIRE_GPIO_OUTPUT, etc.)
+   * @param readInterval Read interval for inputs (ms, 0 = default 1000)
+   * @return true if added
+   */
+  bool addGPIOPin(const char* pinName, VwireGPIOMode mode,
+                  uint16_t readInterval = 0);
+
+  /**
+   * @brief Manually add a GPIO pin with explicit hardware GPIO number
+   *
+   * Use this overload only when you need to override the automatic
+   * pin-name-to-GPIO mapping (e.g., custom board wiring).
+   *
+   * @param pinName      Cloud pin name (e.g., "D5", "A1")
+   * @param gpioNumber   Explicit physical GPIO number
+   * @param mode         Pin mode (VWIRE_GPIO_OUTPUT, etc.)
+   * @param readInterval Read interval for inputs (ms, 0 = default 1000)
+   * @return true if added
+   */
+  bool addGPIOPin(const char* pinName, uint8_t gpioNumber, VwireGPIOMode mode,
+                  uint16_t readInterval = 0);
+
+  /**
+   * @brief Send a GPIO pin value to the cloud
+   * @param pinName Pin name (e.g., "D5", "A0")
+   * @param value   Value to publish
+   */
+  void gpioSend(const char* pinName, int value);
+
+  /**
+   * @brief Get the GPIO manager (advanced use)
+   * @return Reference to the internal VwireGPIOManager
+   */
+  VwireGPIOManager& getGPIO();
+
+  // =========================================================================
   // DEBUG METHODS
   // =========================================================================
   
@@ -968,6 +1063,13 @@ private:
   ConnectionHandler _disconnectHandler;  ///< Manual disconnect handler
   RawMessageHandler _messageHandler;     ///< Raw message handler
   
+  // GPIO
+  bool _gpioEnabled;                     ///< GPIO management enabled
+  VwireGPIOManager _gpio;                ///< GPIO pin manager
+  void _handlePinConfig(const char* payload);
+  void _publishGPIOValue(const char* pinName, int value);
+  static void _gpioPublishCallback(const char* pinName, int value);
+
   // OTA
   #if VWIRE_HAS_OTA
   bool _otaEnabled;                      ///< OTA updates enabled
