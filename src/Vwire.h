@@ -813,6 +813,16 @@ public:
    * @note Requires PRO plan or higher. Free users are silently ignored.
    */
   void alarm(const char* message, const char* sound, uint8_t priority);
+
+  /**
+   * @brief Send alarm notification with full options including volume
+   * @param message Alarm message text
+   * @param sound Sound name: "default", "urgent", or "warning"
+   * @param priority Priority level: 1=normal, 2=high, 3=critical
+   * @param volume Volume level 0-100 (default: 50)
+   * @note Requires PRO plan or higher. Free users are silently ignored.
+   */
+  void alarm(const char* message, const char* sound, uint8_t priority, uint8_t volume);
   
   /**
    * @brief Send email notification
