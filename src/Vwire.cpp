@@ -684,14 +684,18 @@ void VwireClass::notify(const char* message) {
 }
 
 void VwireClass::alarm(const char* message) {
-  alarm(message, "default", 1);
+  alarm(message, "default", 1, 50);
 }
 
 void VwireClass::alarm(const char* message, const char* sound) {
-  alarm(message, sound, 1);
+  alarm(message, sound, 1, 50);
 }
 
 void VwireClass::alarm(const char* message, const char* sound, uint8_t priority) {
+  alarm(message, sound, priority, 50);
+}
+
+void VwireClass::alarm(const char* message, const char* sound, uint8_t priority, uint8_t volume) {
   if (!connected()) return;
   
   // Generate unique alarm ID to prevent duplicates
@@ -699,21 +703,22 @@ void VwireClass::alarm(const char* message, const char* sound, uint8_t priority)
   unsigned long alarmId = millis();
   if (alarmId == lastAlarmId) alarmId++; // Ensure uniqueness
   lastAlarmId = alarmId;
+  if (volume > 100) volume = 100;
   
   char topic[96];
   char buffer[VWIRE_JSON_BUFFER_SIZE];
   
   snprintf(topic, sizeof(topic), "vwire/%s/alarm", _deviceId);
   snprintf(buffer, sizeof(buffer), 
-    "{\"type\":\"alarm\",\"message\":\"%s\",\"alarmId\":\"alarm_%lu\",\"sound\":\"%s\",\"priority\":%d,\"timestamp\":%lu}", 
-    message, alarmId, sound, priority, millis()
+    "{\"type\":\"alarm\",\"message\":\"%s\",\"alarmId\":\"alarm_%lu\",\"sound\":\"%s\",\"priority\":%d,\"volume\":%d,\"timestamp\":%lu}", 
+    message, alarmId, sound, priority, volume, millis()
   );
   
   unsigned int len = strlen(buffer);
   _mqttClient.beginPublish(topic, len, false);
   _mqttClient.print(buffer);
   _mqttClient.endPublish();
-  _debugPrintf("[Vwire] Alarm: %s (sound: %s, priority: %d)", message, sound, priority);
+  _debugPrintf("[Vwire] Alarm: %s (sound: %s, priority: %d, volume: %d)", message, sound, priority, volume);
 }
 
 void VwireClass::email(const char* subject, const char* body) {
