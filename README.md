@@ -35,7 +35,7 @@ Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 - ⚡ **Auto Reconnect**: Automatic connection recovery with configurable intervals
 - 🎯 **Multi-Platform**: ESP32, ESP8266, RP2040, SAMD, and more
 - ✅ **Reliable Delivery**: Optional application-level ACK for guaranteed message delivery
-- 📱 **WiFi Provisioning**: SmartConfig and AP Mode for mobile app configuration
+- 📱 **WiFi Provisioning**: AP Mode provisioning — configure device via browser without hardcoding credentials
 
 ---
 
@@ -387,17 +387,16 @@ Serial.printf("Free heap: %u bytes\n", Vwire.getFreeHeap());
 
 ---
 
-### WiFi Provisioning (SmartConfig & AP Mode)
+### WiFi Provisioning (AP Mode)
 
-New in v3.1.0! Configure WiFi credentials and device token via the Vwire mobile app without hardcoding them in your sketch.
+New in v3.1.0! Configure WiFi credentials and device token via a browser — no hardcoding credentials in firmware.
 
 #### Overview
 
 | Method | Description | Best For |
 |--------|-------------|----------|
-| **SmartConfig** | App broadcasts credentials to device | Consumer products, easy setup |
-| **AP Mode** | Device creates hotspot with config page | Networks without SmartConfig support |
-| **Auto** | SmartConfig first, then fallback to AP | **Recommended for production** |
+| **AP Mode** | Device creates hotspot with config web page | All networks, first-time setup |
+| **OEM Mode** | Token pre-flashed, user provides WiFi only | Manufacturer pre-provisioned devices |
 
 #### Basic Usage
 
@@ -414,8 +413,8 @@ void setup() {
     Vwire.config(VwireProvision.getAuthToken());
     Vwire.begin(VwireProvision.getSSID(), VwireProvision.getPassword());
   } else {
-    // No credentials - start SmartConfig provisioning
-    VwireProvision.startSmartConfig();
+    // No credentials - start AP Mode provisioning
+    VwireProvision.startAPMode("vwire123");
   }
 }
 
@@ -434,25 +433,6 @@ void loop() {
   
   Vwire.run();
 }
-```
-
-#### SmartConfig Provisioning
-
-Uses ESP-Touch protocol to receive credentials broadcast by the mobile app.
-
-```cpp
-#include <VwireProvisioning.h>
-
-// Start SmartConfig with 2-minute timeout
-VwireProvision.startSmartConfig(120000);
-
-// Or with callback
-VwireProvision.onStateChange([](VwireProvisioningState state) {
-  if (state == VWIRE_PROV_SUCCESS) {
-    Serial.println("Provisioned!");
-  }
-});
-VwireProvision.startSmartConfig();
 ```
 
 #### AP Mode Provisioning
@@ -558,7 +538,6 @@ void loop() {
 | State | Description |
 |-------|-------------|
 | `VWIRE_PROV_IDLE` | Not provisioning |
-| `VWIRE_PROV_SMARTCONFIG_WAIT` | Waiting for SmartConfig data |
 | `VWIRE_PROV_AP_ACTIVE` | AP mode active, web server running |
 | `VWIRE_PROV_CONNECTING` | Connecting to WiFi |
 | `VWIRE_PROV_SUCCESS` | Provisioning complete |
@@ -587,15 +566,15 @@ VwireProvision.saveCredentials("MyWiFi", "password123", "device-token");
 // State change callback
 VwireProvision.onStateChange([](VwireProvisioningState state) {
   switch (state) {
-    case VWIRE_PROV_SMARTCONFIG_WAIT:
-      Serial.println("Open Vwire app → Smart Config");
+    case VWIRE_PROV_AP_ACTIVE:
+      Serial.printf("Connect to: %s\n", VwireProvision.getAPSSID());
+      Serial.printf("Open: http://%s\n", VwireProvision.getAPIP().c_str());
       break;
     case VWIRE_PROV_SUCCESS:
       Serial.println("Provisioning complete!");
       break;
     case VWIRE_PROV_TIMEOUT:
-      // Switch to AP mode as fallback
-      VwireProvision.startAPMode("vwire123");
+      Serial.println("AP Mode timed out. Restarting...");
       break;
   }
 });
@@ -605,7 +584,7 @@ VwireProvision.onCredentialsReceived([](const char* ssid, const char* pass, cons
   Serial.printf("Received: SSID=%s, Token=%s\n", ssid, token);
 });
 
-// Progress callback (SmartConfig)
+// Progress callback
 VwireProvision.onProgress([](int percent, const char* msg) {
   Serial.printf("%d%% - %s\n", percent, msg);
 });
@@ -614,8 +593,6 @@ VwireProvision.onProgress([](int percent, const char* msg) {
 #### Complete Auto-Provisioning Example
 
 See [15_Auto_Provisioning](examples/15_Auto_Provisioning) for a production-ready implementation.
-
-> **Note**: SmartConfig only works with 2.4GHz WiFi networks. For 5GHz networks, use AP Mode.
 
 ---
 
@@ -1267,9 +1244,8 @@ Handlers: 3
 | [10_Minimal](examples/10_Minimal) | Simplest possible example |
 | [11_MQTTS_Secure](examples/11_MQTTS_Secure) | Secure TLS connection example |
 | [12_ReliableDelivery](examples/12_ReliableDelivery) | Guaranteed delivery with ACK |
-| [13_SmartConfig_Provisioning](examples/13_SmartConfig_Provisioning) | 📱 WiFi provisioning via mobile app |
 | [14_AP_Mode_Provisioning](examples/14_AP_Mode_Provisioning) | 📡 WiFi provisioning via Access Point |
-| [15_Auto_Provisioning](examples/15_Auto_Provisioning) | ✨ **Recommended** - Automatic provisioning |
+| [15_Auto_Provisioning](examples/15_Auto_Provisioning) | ✨ **Recommended** - Auto provisioning (stored creds or AP Mode) |
 
 ---
 
