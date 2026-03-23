@@ -55,12 +55,20 @@ Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 
 ## 📦 Installation
 
-### Arduino IDE
+### Option 1: Arduino Library Manager (Recommended)
 
-1. Download this library as ZIP from [GitHub](https://github.com/vwireiot/vwire-arduino)
+1. Open Arduino IDE
+2. Go to **Sketch → Include Library → Manage Libraries...**
+3. Search for `VwireIOT`
+4. Click **Install**
+5. Also install the required dependencies when prompted: **PubSubClient** and **ArduinoJson**
+
+### Option 2: Manual ZIP Install
+
+1. Download the [latest release ZIP](https://github.com/vwireiot/vwire-arduino/releases/latest) from GitHub
 2. Go to **Sketch → Include Library → Add .ZIP Library**
 3. Select the downloaded ZIP file
-4. Install dependencies: `PubSubClient` and `ArduinoJson` from Library Manager
+4. Install dependencies via Library Manager: search for and install `PubSubClient` and `ArduinoJson`
 
 ---
 
