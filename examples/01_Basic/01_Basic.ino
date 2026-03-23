@@ -9,11 +9,14 @@
  * - Sending sensor data to dashboard
  * - Receiving button press from dashboard
  * - LED control using VWIRE_RECEIVE()
- * 
+ * - Direct GPIO pin control from cloud via enableGPIO()
+ *
  * Dashboard Setup:
  * - V0: Button widget (controls LED)
  * - V1: Gauge widget (displays temperature)
  * - V2: Value display (shows counter)
+ * - D2/D4/D5: GPIO pins — configure mode in device pin settings,
+ *   then control with Button/Slider widgets on the dashboard
  * 
  * Instructions:
  * 1. Create device in Vwire IOT dashboard
@@ -127,6 +130,12 @@ void setup() {
   // No need to register handlers manually!
   // VWIRE_RECEIVE(V0), VWIRE_CONNECTED(), VWIRE_DISCONNECTED() 
   // are auto-registered at startup.
+  
+  // Enable GPIO management — allows direct hardware pin control from the cloud.
+  // Configure pin modes (OUTPUT, INPUT, PWM, etc.) in the device's pin settings
+  // on the Vwire dashboard. A Button widget (0/1) toggles an output pin;
+  // a Slider widget (0-255) drives PWM. No extra code needed.
+  Vwire.enableGPIO();
   
   // Connect to WiFi and Vwire
   Serial.println("Connecting...");
