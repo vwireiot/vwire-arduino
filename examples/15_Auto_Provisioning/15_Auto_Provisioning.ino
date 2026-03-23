@@ -1,39 +1,30 @@
 /*
  * Vwire IOT - Auto Provisioning Example (Recommended)
  * 
- * This is the RECOMMENDED provisioning example that combines both SmartConfig
- * and AP Mode for the best user experience. It automatically handles:
+ * This is the RECOMMENDED provisioning example. It automatically handles:
  * 
- * 1. First boot: Starts SmartConfig for easy mobile app provisioning
- * 2. SmartConfig timeout: Falls back to AP Mode as backup
- * 3. Subsequent boots: Uses stored credentials
- * 4. Connection failure: Re-enters provisioning mode
+ * 1. First boot: Starts AP Mode for WiFi setup via browser
+ * 2. Subsequent boots: Uses stored credentials automatically
+ * 3. Connection failure: Re-enters AP Mode for re-provisioning
  * 
  * Why use this approach?
- * - SmartConfig is faster and more convenient (no need to change WiFi)
- * - AP Mode provides a fallback for networks that don't support SmartConfig
+ * - No hardcoding WiFi credentials or auth tokens in firmware
+ * - Works on all WiFi networks (2.4GHz and 5GHz)
  * - Credentials are stored and persist across reboots
  * - Button allows users to reset and re-provision anytime
  * 
  * Provisioning Flow:
- * ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
- * │  Power On   │────>│ Check Stored │────>│  Connect    │
- * └─────────────┘     │ Credentials  │     │  to WiFi    │
- *                     └──────────────┘     └─────────────┘
- *                            │                    │
- *                         No │                    │ Success
- *                            ▼                    ▼
- *                     ┌──────────────┐     ┌─────────────┐
- *                     │ SmartConfig  │     │  Connect    │
- *                     │   (60 sec)   │     │  to Vwire   │
- *                     └──────────────┘     └─────────────┘
- *                            │
- *                      Timeout
- *                            ▼
- *                     ┌──────────────┐
- *                     │  AP Mode     │
- *                     │  (fallback)  │
- *                     └──────────────┘
+ * +-------------+     +--------------+     +-------------+
+ * |  Power On   |---->| Check Stored |---->|  Connect    |
+ * +-------------+     | Credentials  |     |  to WiFi    |
+ *                     +--------------+     +-------------+
+ *                            |                    |
+ *                         No |                    | Success
+ *                            v                    v
+ *                     +--------------+     +-------------+
+ *                     |   AP Mode    |     |  Connect    |
+ *                     |  (browser)   |     |  to Vwire   |
+ *                     +--------------+     +-------------+
  * 
  * Compatible boards:
  * - ESP32 (all variants)
@@ -59,17 +50,13 @@
 #define REPROVISION_BUTTON 0    // GPIO0 = Flash button on most ESP boards
 #define BUTTON_HOLD_TIME 3000   // Hold for 3 seconds to reset
 
-// Provisioning timeouts
-#define SMARTCONFIG_TIMEOUT 60000   // 1 minute for SmartConfig
-#define AP_MODE_TIMEOUT 0           // No timeout for AP mode (stays until configured)
-
 // AP Mode settings
+#define AP_MODE_TIMEOUT 0           // No timeout (stays until configured)
 #define AP_PASSWORD "vwire123"      // Set to nullptr for open network
 
 // =============================================================================
 // LED BLINK PATTERNS
 // =============================================================================
-#define BLINK_SMARTCONFIG 200   // Fast blink - SmartConfig active
 #define BLINK_AP_MODE 1000      // Slow blink - AP Mode active
 #define BLINK_CONNECTING 50     // Very fast - Connecting
 #define BLINK_ERROR 100         // Rapid blink - Error
@@ -82,7 +69,6 @@ unsigned long lastLedBlink = 0;
 bool ledState = false;
 bool provisioned = false;
 unsigned long buttonPressStart = 0;
-bool smartConfigTried = false;
 
 // =============================================================================
 // VWIRE HANDLERS (Customize for your application)
@@ -102,7 +88,7 @@ VWIRE_RECEIVE(V1) {
 }
 
 VWIRE_CONNECTED() {
-  Serial.println("\n✓ Connected to Vwire IOT!");
+  Serial.println("\n+ Connected to Vwire IOT!");
   Serial.println("========================================");
   Serial.printf("  Device: %s\n", WiFi.macAddress().c_str());
   Serial.printf("  WiFi: %s\n", WiFi.SSID().c_str());
@@ -118,7 +104,7 @@ VWIRE_CONNECTED() {
 }
 
 VWIRE_DISCONNECTED() {
-  Serial.println("✗ Disconnected from Vwire IOT!");
+  Serial.println("- Disconnected from Vwire IOT!");
 }
 
 // =============================================================================
@@ -127,16 +113,9 @@ VWIRE_DISCONNECTED() {
 
 void onProvisioningState(VwireProvisioningState state) {
   switch (state) {
-    case VWIRE_PROV_SMARTCONFIG_WAIT:
-      Serial.println("\n[Provision] SmartConfig listening...");
-      Serial.println("[Provision] Open Vwire app → Smart Config");
-      Serial.println("[Provision] (Will switch to AP Mode in 60 seconds)\n");
-      ledBlinkInterval = BLINK_SMARTCONFIG;
-      break;
-      
     case VWIRE_PROV_AP_ACTIVE:
       Serial.println("\n========================================");
-      Serial.println("  AP Mode - Manual Configuration");
+      Serial.println("  AP Mode - Configure via Browser");
       Serial.println("========================================");
       Serial.printf("1. Connect to WiFi: %s\n", VwireProvision.getAPSSID());
       if (AP_PASSWORD) {
@@ -153,24 +132,17 @@ void onProvisioningState(VwireProvisioningState state) {
       break;
       
     case VWIRE_PROV_SUCCESS:
-      Serial.println("[Provision] ✓ Provisioning complete!");
+      Serial.println("[Provision] + Provisioning complete!");
       provisioned = true;
       break;
       
     case VWIRE_PROV_FAILED:
-      Serial.println("[Provision] ✗ Connection failed!");
+      Serial.println("[Provision] - Connection failed!");
       ledBlinkInterval = BLINK_ERROR;
-      // If in AP mode, it stays active for retry
-      // If SmartConfig failed, it will timeout and switch to AP mode
       break;
       
     case VWIRE_PROV_TIMEOUT:
-      if (!smartConfigTried) {
-        Serial.println("\n[Provision] SmartConfig timed out.");
-        Serial.println("[Provision] Switching to AP Mode...\n");
-        smartConfigTried = true;
-        VwireProvision.startAPMode(AP_PASSWORD, AP_MODE_TIMEOUT);
-      }
+      Serial.println("[Provision] AP Mode timed out.");
       break;
       
     default:
@@ -192,12 +164,11 @@ void onProgress(int percent, const char* message) {
 // PROVISIONING FUNCTIONS
 // =============================================================================
 
-void startAutoProvisioning() {
+void startProvisioning() {
   Serial.println("\n========================================");
-  Serial.println("  Auto Provisioning Started");
+  Serial.println("  Provisioning Started");
   Serial.println("========================================");
-  Serial.println("Mode 1: SmartConfig (easiest - use Vwire app)");
-  Serial.println("Mode 2: AP Mode (fallback after 60 seconds)\n");
+  Serial.println("Starting AP Mode - connect via browser\n");
   
   // Set up callbacks
   VwireProvision.setDebug(true);
@@ -205,9 +176,8 @@ void startAutoProvisioning() {
   VwireProvision.onCredentialsReceived(onCredentialsReceived);
   VwireProvision.onProgress(onProgress);
   
-  // Start with SmartConfig
-  smartConfigTried = false;
-  VwireProvision.startSmartConfig(SMARTCONFIG_TIMEOUT);
+  // Start AP Mode
+  VwireProvision.startAPMode(AP_PASSWORD, AP_MODE_TIMEOUT);
 }
 
 void connectWithStoredCredentials() {
@@ -227,14 +197,14 @@ void connectWithStoredCredentials() {
     Serial.println("WiFi connected!");
     provisioned = true;
   } else {
-    Serial.println("\n✗ Failed to connect with stored credentials!");
+    Serial.println("\n- Failed to connect with stored credentials!");
     Serial.println("This can happen if:");
     Serial.println("  - WiFi network is unavailable");
     Serial.println("  - Password was changed");
     Serial.println("  - Router is unreachable");
     Serial.println("\nStarting re-provisioning...\n");
     VwireProvision.clearCredentials();
-    startAutoProvisioning();
+    startProvisioning();
   }
 }
 
@@ -303,10 +273,10 @@ void setup() {
   delay(1000);
   
   Serial.println("\n");
-  Serial.println("╔════════════════════════════════════════╗");
-  Serial.println("║     Vwire IOT - Auto Provisioning      ║");
-  Serial.println("║           Production Ready             ║");
-  Serial.println("╚════════════════════════════════════════╝\n");
+  Serial.println("+========================================+");
+  Serial.println("     Vwire IOT - Auto Provisioning       ");
+  Serial.println("           Production Ready              ");
+  Serial.println("+========================================+\n");
   
   // Initialize pins
   pinMode(LED_BUILTIN, OUTPUT);
@@ -323,12 +293,12 @@ void setup() {
   
   // Check for stored credentials
   if (VwireProvision.hasCredentials()) {
-    Serial.println("\n✓ Found stored credentials");
+    Serial.println("\n+ Found stored credentials");
     connectWithStoredCredentials();
   } else {
-    Serial.println("\n○ No stored credentials");
+    Serial.println("\no No stored credentials");
     Serial.println("  Hold FLASH button for 3 seconds to reset anytime");
-    startAutoProvisioning();
+    startProvisioning();
   }
 }
 
@@ -371,32 +341,11 @@ void loop() {
   if (Vwire.connected() && millis() - lastSensorRead >= 10000) {
     lastSensorRead = millis();
     
-    // Send some example data
-    float temperature = 22.5 + (random(-20, 20) / 10.0);
-    float humidity = 55.0 + (random(-100, 100) / 10.0);
-    int rssi = WiFi.RSSI();
+    // Send uptime and free heap as example telemetry
+    Vwire.virtualSend(V1, millis() / 1000);
+    Vwire.virtualSend(V2, ESP.getFreeHeap());
     
-    // Send to virtual pins
-    Vwire.virtualSend(V2, temperature);
-    Vwire.virtualSend(V3, humidity);
-    Vwire.virtualSend(V4, rssi);
-    
-    Serial.printf("[Sensor] Temp: %.1f°C, Humidity: %.1f%%, RSSI: %d dBm\n", 
-                  temperature, humidity, rssi);
+    Serial.printf("[App] Sent telemetry: uptime=%lus, heap=%u\n",
+                  millis() / 1000, ESP.getFreeHeap());
   }
-  
-  // Example: Handle local button press
-  static bool lastButtonState = HIGH;
-  bool currentButtonState = digitalRead(REPROVISION_BUTTON);
-  
-  if (lastButtonState == HIGH && currentButtonState == LOW) {
-    // Button just pressed (short press, not held)
-    if (buttonPressStart == 0) {
-      Serial.println("[Button] Short press detected");
-      // Toggle LED and sync to server
-      ledState = !ledState;
-      Vwire.virtualSend(V0, ledState);
-    }
-  }
-  lastButtonState = currentButtonState;
 }

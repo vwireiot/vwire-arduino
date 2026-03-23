@@ -9,19 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added - WiFi Provisioning Support 📱
 
-New `VwireProvisioning` module for configuring WiFi credentials via the Vwire mobile app.
+New `VwireProvisioning` module for configuring WiFi credentials via a browser — no hardcoding credentials in firmware.
 
 ### Added
-- **VwireProvisioning.h**: WiFi provisioning header with SmartConfig and AP Mode support
+- **VwireProvisioning.h**: WiFi provisioning header with AP Mode support
 - **VwireProvisioning.cpp**: Full implementation for ESP32 and ESP8266
-- **SmartConfig support**: Receive credentials via ESP-Touch protocol from mobile app
 - **AP Mode support**: Device creates hotspot with embedded web configuration page
 - **Credential storage**: Persistent storage using ESP32 Preferences (NVS) or ESP8266 EEPROM
-- **Auto provisioning**: SmartConfig with AP Mode fallback for best user experience
 - **Provisioning callbacks**: `onStateChange()`, `onCredentialsReceived()`, `onProgress()`
-- **13_SmartConfig_Provisioning**: Example for mobile app provisioning
 - **14_AP_Mode_Provisioning**: Example for access point configuration
-- **15_Auto_Provisioning**: Production-ready example with automatic fallback
+- **15_Auto_Provisioning**: Production-ready example (stored credentials or AP Mode fallback)
+- **16_OEM_PreProvisioned**: Example for manufacturer pre-provisioned devices
+
+### Removed
+- **SmartConfig / ESP-Touch support**: Removed `startSmartConfig()` — use AP Mode instead
 
 ### Changed
 - Updated library.properties with VwireProvisioning.h include
@@ -36,9 +37,6 @@ New `VwireProvisioning` module for configuring WiFi credentials via the Vwire mo
 VwireProvision.hasCredentials();
 VwireProvision.getSSID();
 VwireProvision.getAuthToken();
-
-// SmartConfig
-VwireProvision.startSmartConfig(timeout);
 
 // AP Mode
 VwireProvision.startAPMode(password, timeout);

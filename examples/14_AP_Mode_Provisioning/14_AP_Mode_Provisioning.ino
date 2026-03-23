@@ -13,7 +13,7 @@
  * 5. Device saves credentials and connects to WiFi
  * 
  * Features:
- * - Works when SmartConfig fails (5GHz networks, etc.)
+ * - Works on all WiFi networks including 5GHz routers
  * - Beautiful responsive web interface
  * - Network scanning for available WiFi networks
  * - Automatic credential storage (persists across reboots)
