@@ -3,7 +3,7 @@
 Professional IoT platform library for Arduino, ESP32, ESP8266 and compatible boards.  
 Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 
-[![Version](https://img.shields.io/badge/version-3.1.0-blue.svg)](https://github.com/vwireiot/vwire-arduino)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/vwireiot/vwire-arduino)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 🌐 **Cloud Portal**: [https://vwire.io](https://vwire.io)
