@@ -76,8 +76,7 @@ void setup() {
   
   // Configure Vwire
   Vwire.setDebug(true);
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // Connect to WiFi and cloud
   if (Vwire.begin(WIFI_SSID, WIFI_PASSWORD)) {

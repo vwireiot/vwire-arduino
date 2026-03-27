@@ -81,37 +81,32 @@ VwireClass::~VwireClass() {
 // =============================================================================
 // CONFIGURATION
 // =============================================================================
-void VwireClass::config(const char* authToken) {
-  config(authToken, VWIRE_DEFAULT_SERVER, VWIRE_DEFAULT_PORT_TLS);
-}
-
-void VwireClass::config(const char* authToken, const char* server, uint16_t port) {
+void VwireClass::config(const char* authToken, const char* deviceId,
+                        VwireTransport transport, bool gpioEnabled) {
+  // Store auth token
   strncpy(_settings.authToken, authToken, VWIRE_MAX_TOKEN_LENGTH - 1);
-  strncpy(_settings.server, server, VWIRE_MAX_SERVER_LENGTH - 1);
-  _settings.port = port;
-  
-  // Auto-detect transport based on port
-  if (port == 8883 || port == 443) {
-    _settings.transport = VWIRE_TRANSPORT_TCP_SSL;
-  } else {
-    _settings.transport = VWIRE_TRANSPORT_TCP;
-  }
-  
-  // Use FULL auth token as device ID for topic authorization
-  strncpy(_deviceId, authToken, VWIRE_MAX_TOKEN_LENGTH - 1);
-  _deviceId[VWIRE_MAX_TOKEN_LENGTH - 1] = '\0';
-  
-  _debugPrintf("[Vwire] Config: server=%s, port=%d, transport=%s", 
-               _settings.server, _settings.port,
-               _settings.transport == VWIRE_TRANSPORT_TCP_SSL ? "TLS" : "TCP");
-}
+  _settings.authToken[VWIRE_MAX_TOKEN_LENGTH - 1] = '\0';
 
-void VwireClass::config(const VwireSettings& settings) {
-  _settings = settings;
-  
-  // Use FULL auth token as device ID for topic authorization
-  strncpy(_deviceId, settings.authToken, VWIRE_MAX_TOKEN_LENGTH - 1);
+  // Default server
+  strncpy(_settings.server, VWIRE_DEFAULT_SERVER, VWIRE_MAX_SERVER_LENGTH - 1);
+  _settings.server[VWIRE_MAX_SERVER_LENGTH - 1] = '\0';
+
+  // Transport and port
+  _settings.transport = transport;
+  _settings.port = (transport == VWIRE_TRANSPORT_TCP) ? VWIRE_DEFAULT_PORT : VWIRE_DEFAULT_PORT_TLS;
+
+  // Device ID: use provided value, or fall back to auth token
+  const char* id = (deviceId && strlen(deviceId) > 0) ? deviceId : authToken;
+  strncpy(_deviceId, id, VWIRE_MAX_TOKEN_LENGTH - 1);
   _deviceId[VWIRE_MAX_TOKEN_LENGTH - 1] = '\0';
+
+  // GPIO
+  _gpioEnabled = gpioEnabled;
+
+  _debugPrintf("[Vwire] Config: device=%s, transport=%s, GPIO=%s",
+               _deviceId,
+               transport == VWIRE_TRANSPORT_TCP_SSL ? "TLS" : "TCP",
+               gpioEnabled ? "ON" : "OFF");
 }
 
 void VwireClass::setDeviceId(const char* deviceId) {

@@ -508,24 +508,34 @@ public:
   // =========================================================================
   
   /**
-   * @brief Configure with auth token only (uses default server)
-   * @param authToken Authentication token from Vwire IOT dashboard
+   * @brief Configure the Vwire connection
+   * 
+   * Single-call configuration. Uses default Vwire server (mqtt.vwire.io)
+   * with TLS encryption. GPIO pin management is enabled by default.
+   * 
+   * @param authToken   Authentication token from Vwire IOT dashboard
+   * @param deviceId    Device ID from dashboard (e.g., "VW-ABC123"), or nullptr
+   *                    to use the auth token as device ID (provisioning flows)
+   * @param transport   Transport protocol (default: VWIRE_TRANSPORT_TCP_SSL)
+   * @param gpioEnabled Enable automatic GPIO pin management (default: true)
+   * 
+   * @code
+   * // Standard usage — TLS + GPIO enabled:
+   * Vwire.config(AUTH_TOKEN, DEVICE_ID);
+   * 
+   * // Provisioning (device ID not yet known):
+   * Vwire.config(AUTH_TOKEN);
+   * 
+   * // Plain TCP for boards without SSL support:
+   * Vwire.config(AUTH_TOKEN, DEVICE_ID, VWIRE_TRANSPORT_TCP);
+   * 
+   * // Disable GPIO pin management:
+   * Vwire.config(AUTH_TOKEN, DEVICE_ID, VWIRE_TRANSPORT_TCP_SSL, false);
+   * @endcode
    */
-  void config(const char* authToken);
-  
-  /**
-   * @brief Configure with auth token, server, and port
-   * @param authToken Authentication token from Vwire IOT dashboard
-   * @param server MQTT broker hostname or IP address
-   * @param port MQTT broker port (1883=TCP, 8883=TLS)
-   */
-  void config(const char* authToken, const char* server, uint16_t port);
-  
-  /**
-   * @brief Configure with complete settings structure
-   * @param settings VwireSettings structure with all options
-   */
-  void config(const VwireSettings& settings);
+  void config(const char* authToken, const char* deviceId = nullptr,
+              VwireTransport transport = VWIRE_TRANSPORT_TCP_SSL,
+              bool gpioEnabled = true);
 
   /**
    * @brief Set custom device ID (for OEM pre-provisioned devices)

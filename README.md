@@ -3,7 +3,7 @@
 Professional IoT platform library for Arduino, ESP32, ESP8266 and compatible boards.  
 Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/vwireiot/vwire-arduino)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/vwireiot/vwire-arduino)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 🌐 **Cloud Portal**: [https://vwire.io](https://vwire.io)
@@ -18,7 +18,7 @@ Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 | `VWIRE_RECEIVE(pin) { }` | Cloud → Device | Handle incoming data |
 | `VWIRE_CONNECTED() { }` | - | Called when connected |
 | `VWIRE_DISCONNECTED() { }` | - | Called when disconnected |
-| `Vwire.config(AUTH_TOKEN)` | - | Configure with default server |
+| `Vwire.config(AUTH_TOKEN, DEVICE_ID)` | - | Configure connection (TLS + GPIO by default) |
 | `Vwire.begin(SSID, PASS)` | - | Connect to WiFi & cloud |
 | `Vwire.run()` | - | Process messages (call in loop) |
 
@@ -26,9 +26,10 @@ Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 
 ## 🌟 Features
 
-- 🔐 **Secure Connections**: MQTT over TLS/SSL encryption (port 8883) - **Recommended**
+- 🔐 **Secure Connections**: MQTT over TLS/SSL encryption (port 8883) - **Default**
 - 📡 **Standard MQTT**: Plain TCP support (port 1883) for boards without SSL
 - 📊 **Virtual Pins**: Bidirectional data exchange with dashboard (256 pins)
+- 🔌 **GPIO Pin Management**: Cloud-controlled digital/analog pins — no code needed
 - ⏱️ **VwireTimer**: Non-blocking timers for all Arduino boards
 - 🔔 **Notifications**: Push notifications, email alerts, and persistent alarms
 - 🔄 **OTA Updates**: Over-the-air firmware updates (ESP32/ESP8266)
@@ -85,11 +86,6 @@ const char* WIFI_PASS = "YOUR_PASSWORD";
 const char* AUTH_TOKEN = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID  = "YOUR_DEVICE_ID"; // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
-// Transport Configuration (optional - TLS is default)
-// VWIRE_TRANSPORT_TCP_SSL (port 8883) - Encrypted, RECOMMENDED
-// VWIRE_TRANSPORT_TCP     (port 1883) - Plain TCP, for boards without SSL
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
 // ===== HANDLERS (auto-registered!) =====
 
 // Called when cloud sends data to V0 (e.g., button press)
@@ -102,12 +98,7 @@ VWIRE_RECEIVE(V0) {
 // Called when connected to server
 VWIRE_CONNECTED() {
   Serial.println("Connected to Vwire IOT!");
-  Vwire.syncVirtual(V0);  // Request stored value from server
-}
-
-// Called when disconnected
-VWIRE_DISCONNECTED() {
-  Serial.println("Disconnected!");
+  Vwire.syncVirtual(V0);  // Restore stored value after power cycle
 }
 
 // ===== SETUP =====
@@ -115,14 +106,10 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
   
-  // Configure Vwire (uses default server: mqtt.vwire.io)
-  Vwire.config(AUTH_TOKEN);
-  // Recommended (Option A): use Device ID for topic routing (token remains only credential)
-  Vwire.setDeviceId(DEVICE_ID);
-  Vwire.setTransport(TRANSPORT);
-  Vwire.setDebug(true);
+  // Configure connection — TLS encryption and GPIO are enabled by default
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
-  // Connect - handlers are auto-registered by macros!
+  // Connect to WiFi and Vwire IOT
   if (Vwire.begin(WIFI_SSID, WIFI_PASS)) {
     Serial.println("Connected!");
   }
@@ -130,14 +117,7 @@ void setup() {
 
 // ===== LOOP =====
 void loop() {
-  Vwire.run();  // Must call frequently!
-  
-  // Send data every 5 seconds
-  static unsigned long lastSend = 0;
-  if (Vwire.connected() && millis() - lastSend > 5000) {
-    lastSend = millis();
-    Vwire.virtualSend(V1, millis() / 1000);  // Send uptime to V1
-  }
+  Vwire.run();  // Handles MQTT, reconnection, GPIO polling, and heartbeats
 }
 ```
 
@@ -149,23 +129,21 @@ void loop() {
 
 | Transport | Constant | Port | Encryption | Recommendation |
 |-----------|----------|:----:|:----------:|----------------|
-| **MQTTS (TLS)** | `VWIRE_TRANSPORT_TCP_SSL` | 8883 | ✅ Encrypted | ✅ **RECOMMENDED** |
+| **MQTTS (TLS)** | `VWIRE_TRANSPORT_TCP_SSL` | 8883 | ✅ Encrypted | ✅ **Default — recommended** |
 | MQTT (TCP) | `VWIRE_TRANSPORT_TCP` | 1883 | ❌ Plain | For boards without SSL support |
 
-### Vwire IOT Cloud (Default)
+### Default: TLS Encryption
 
 ```cpp
-// Simplest configuration - uses mqtt.vwire.io with TLS
-Vwire.config(AUTH_TOKEN);
-Vwire.setTransport(VWIRE_TRANSPORT_TCP_SSL);
+// TLS is the default — no extra configuration needed
+Vwire.config(AUTH_TOKEN, DEVICE_ID);
 ```
 
-### For Boards Without SSL Support
+### Plain TCP (boards without SSL)
 
 ```cpp
-// Use plain TCP (port 1883) for boards that don't support TLS
-Vwire.config(AUTH_TOKEN);
-Vwire.setTransport(VWIRE_TRANSPORT_TCP);
+// Pass VWIRE_TRANSPORT_TCP as the third parameter
+Vwire.config(AUTH_TOKEN, DEVICE_ID, VWIRE_TRANSPORT_TCP);
 ```
 
 > 🌐 Sign up for free at [https://vwire.io](https://vwire.io) to get your AUTH_TOKEN
@@ -176,43 +154,54 @@ Vwire.setTransport(VWIRE_TRANSPORT_TCP);
 
 ### Configuration Functions
 
-#### `Vwire.config(authToken)`
-Configure with default server (mqtt.vwire.io). **Recommended for most users.**
+#### `Vwire.config(authToken, deviceId, transport, gpioEnabled)`
+Configure the library in a single call. Only `authToken` is required — all other parameters have sensible defaults.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `authToken` | `const char*` | *required* | Device auth token from the dashboard |
+| `deviceId` | `const char*` | `nullptr` | Device ID (e.g. `"VU-A1B2C3"`). If omitted, falls back to auth token |
+| `transport` | `VwireTransport` | `VWIRE_TRANSPORT_TCP_SSL` | Connection protocol (TLS or plain TCP) |
+| `gpioEnabled` | `bool` | `true` | Enable cloud-managed GPIO pin control |
 
 ```cpp
-Vwire.config("your-auth-token-here");
+// Recommended — TLS + GPIO enabled by default
+Vwire.config(AUTH_TOKEN, DEVICE_ID);
+
+// Plain TCP for boards without TLS support
+Vwire.config(AUTH_TOKEN, DEVICE_ID, VWIRE_TRANSPORT_TCP);
+
+// Disable GPIO pin management (virtual-pin-only projects)
+Vwire.config(AUTH_TOKEN, DEVICE_ID, VWIRE_TRANSPORT_TCP_SSL, false);
+
+// Provisioning flow — device ID not yet known, uses token as fallback
+Vwire.config(AUTH_TOKEN);
 ```
 
-#### `Vwire.config(authToken, server, port)`
-Configure with custom MQTT server (for advanced/self-hosted setups).
+#### `Vwire.setDeviceId(deviceId)`
+Override the device ID after `config()`. Useful for OEM provisioning flows where the ID is resolved at runtime.
 
 ```cpp
-Vwire.config("your-token", "custom-server.com", 8883);
-```
-
-#### `Vwire.config(settings)`
-Configure with full settings structure.
-
-```cpp
-VwireSettings settings;
-strncpy(settings.authToken, "your-token", VWIRE_MAX_TOKEN_LENGTH);
-strncpy(settings.server, "mqtt.vwire.io", VWIRE_MAX_SERVER_LENGTH);
-settings.port = 8883;
-settings.transport = VWIRE_TRANSPORT_TCP_SSL;
-settings.autoReconnect = true;
-Vwire.config(settings);
+Vwire.setDeviceId("VW-CUSTOM01");
 ```
 
 #### `Vwire.setTransport(transport)`
-Set transport protocol.
+Override the transport after `config()`. Rarely needed — prefer setting transport in `config()`.
 
 | Value | Description |
 |-------|-------------|
-| `VWIRE_TRANSPORT_TCP_SSL` | MQTT over TLS (port 8883) - **Recommended** |
+| `VWIRE_TRANSPORT_TCP_SSL` | MQTT over TLS (port 8883) — **Default** |
 | `VWIRE_TRANSPORT_TCP` | Plain MQTT (port 1883) |
 
 ```cpp
-Vwire.setTransport(VWIRE_TRANSPORT_TCP_SSL);
+Vwire.setTransport(VWIRE_TRANSPORT_TCP);
+```
+
+#### `Vwire.enableGPIO()`
+Re-enable GPIO pin management if it was disabled in `config()`.
+
+```cpp
+Vwire.enableGPIO();
 ```
 
 #### `Vwire.setAutoReconnect(enable)`
@@ -320,6 +309,7 @@ if (Vwire.isDeliveryPending()) {
 const char* WIFI_SSID = "YOUR_WIFI";
 const char* WIFI_PASS = "YOUR_PASSWORD";
 const char* AUTH_TOKEN = "YOUR_AUTH_TOKEN";
+const char* DEVICE_ID  = "YOUR_DEVICE_ID";
 
 // Track delivery statistics
 unsigned long successCount = 0;
@@ -338,9 +328,8 @@ void onDeliveryResult(const char* msgId, bool success) {
 void setup() {
   Serial.begin(115200);
   
-  // Configure Vwire (uses default server: mqtt.vwire.io)
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setTransport(VWIRE_TRANSPORT_TCP_SSL);
+  // Configure Vwire
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   Vwire.setDebug(true);
   
   // Enable reliable delivery
@@ -494,6 +483,7 @@ void setup() {
   
   if (VwireProvision.hasCredentials()) {
     // Use stored WiFi credentials + hardcoded token
+    Vwire.config(VwireProvision.getAuthToken());
     Vwire.begin(VwireProvision.getSSID(), VwireProvision.getPassword());
   } else {
     // Start AP Mode in OEM mode (WiFi only, no token field)
@@ -769,6 +759,7 @@ VWIRE_DISCONNECTED() {
 const char* WIFI_SSID = "YOUR_WIFI";
 const char* WIFI_PASS = "YOUR_PASSWORD";
 const char* AUTH_TOKEN = "YOUR_AUTH_TOKEN";
+const char* DEVICE_ID  = "YOUR_DEVICE_ID";
 
 #define LED_PIN 2
 #define SENSOR_PIN 34
@@ -797,9 +788,8 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
   
-  // Simple configuration - uses default cloud server
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setTransport(VWIRE_TRANSPORT_TCP_SSL);
+  // Configure connection — TLS + GPIO enabled by default
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // No need to register handlers - macros do it automatically!
   Vwire.begin(WIFI_SSID, WIFI_PASS);
@@ -956,7 +946,7 @@ void setup() {
   // Blink LED every 500ms
   timer.setInterval(500, blinkLED);
   
-  Vwire.config(AUTH_TOKEN);
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   Vwire.begin(WIFI_SSID, WIFI_PASS);
 }
 
@@ -1078,8 +1068,8 @@ Vwire.log("System initialized successfully");
 #### `Vwire.getDeviceId()`
 Get the current device identifier used in MQTT topics.
 
-- If you call `Vwire.setDeviceId(DEVICE_ID)`, this returns that Device ID (recommended).
-- Otherwise it falls back to using the auth token as the topic identifier (legacy mode).
+- Returns the device ID set in `config(authToken, deviceId)`.
+- If no device ID was provided, falls back to using the auth token.
 
 ```cpp
 Serial.printf("Device ID: %s\n", Vwire.getDeviceId());
@@ -1098,7 +1088,7 @@ Get library version.
 
 ```cpp
 Serial.printf("Library Version: %s\n", Vwire.getVersion());
-// Output: "3.0.0"
+// Output: "1.1.0"
 ```
 
 #### `Vwire.getFreeHeap()`
@@ -1173,7 +1163,7 @@ Enable Over-The-Air firmware updates.
 
 ```cpp
 void setup() {
-  Vwire.config(AUTH_TOKEN);
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   Vwire.begin(WIFI_SSID, WIFI_PASS);
   
   // Enable OTA with custom hostname and password
@@ -1185,6 +1175,73 @@ void setup() {
 ```
 
 > **Note**: OTA is handled automatically in `Vwire.run()`. No additional code needed in `loop()`.
+
+---
+
+### GPIO Pin Management
+
+GPIO pin management lets the cloud dashboard control physical pins (D0, D1, A0, etc.) directly — no virtual pin handlers needed. GPIO is **enabled by default** in `config()`.
+
+Pins are configured through the dashboard (Device Settings → GPIO Configuration) and automatically synced to the device on connect. The device reads inputs on a configurable interval and reports changes.
+
+#### Smart Write
+
+OUTPUT pins automatically adapt based on the value sent:
+
+| Value Sent | Behavior |
+|:----------:|----------|
+| `0` or `1` | `digitalWrite` — clean digital on/off |
+| `2` – `255` | `analogWrite` / PWM — proportional duty cycle |
+
+A **Switch** widget (sends 0/1) toggles the pin on/off. A **Slider** widget (sends 0–255) controls brightness/speed via PWM. No separate pin mode needed.
+
+#### `Vwire.addGPIOPin(pinName, mode, readInterval)`
+Pre-register a GPIO pin locally (useful for development or offline use). Cloud config overrides these when connected.
+
+| Mode | Description |
+|------|-------------|
+| `VWIRE_GPIO_OUTPUT` | Digital/PWM output |
+| `VWIRE_GPIO_INPUT` | Digital input (floating) |
+| `VWIRE_GPIO_INPUT_PULLUP` | Digital input with pull-up |
+
+```cpp
+// Relay on D2
+Vwire.addGPIOPin("D2", VWIRE_GPIO_OUTPUT);
+
+// Button on D4, read every 200ms
+Vwire.addGPIOPin("D4", VWIRE_GPIO_INPUT_PULLUP, 200);
+```
+
+#### `Vwire.gpioWrite(pinName, value)`
+Directly write to a GPIO pin from your sketch.
+
+```cpp
+Vwire.gpioWrite("D5", HIGH);   // Digital on
+Vwire.gpioWrite("D5", 128);    // PWM — ~50% duty cycle
+```
+
+#### `Vwire.gpioRead(pinName)`
+Read the last polled value of a GPIO input pin.
+
+```cpp
+int btn = Vwire.gpioRead("D4");
+```
+
+#### `Vwire.gpioSend(pinName, value)`
+Write a value and publish it to the cloud.
+
+```cpp
+Vwire.gpioSend("D2", 1);  // Turn on and report to dashboard
+```
+
+#### `Vwire.getGPIO()`
+Access the underlying `VwireGPIOManager` for advanced operations.
+
+```cpp
+Serial.printf("Managed pins: %d\n", Vwire.getGPIO().getPinCount());
+```
+
+> **Pin name mapping:** Pin names match board labels — `D4` on ESP8266/NodeMCU maps to GPIO 2 (built-in LED) automatically. No GPIO number lookup needed.
 
 ---
 
@@ -1213,7 +1270,7 @@ Vwire.printDebugInfo();
 
 /* Output:
 === Vwire IOT Debug Info ===
-Version: 3.0.0
+Version: 1.1.0
 Board: ESP32
 Device ID: abc12345-6789-0abc-def0-123456789abc
 Server: mqtt.vwire.io:8883
@@ -1233,7 +1290,7 @@ Handlers: 3
 
 | Example | Description |
 |---------|-------------|
-| [01_Basic](examples/01_Basic) | Simple sensor and LED control |
+| [01_Basic](examples/01_Basic) | Simple LED control + GPIO pin management |
 | [02_ESP32_Complete](examples/02_ESP32_Complete) | ESP32 with OTA, touch, preferences |
 | [03_ESP8266_Complete](examples/03_ESP8266_Complete) | ESP8266 with LittleFS storage |
 | [04_DHT_SensorStation](examples/04_DHT_SensorStation) | Temperature monitoring with alerts |
@@ -1241,11 +1298,15 @@ Handlers: 3
 | [06_Timer](examples/06_Timer) | **VwireTimer** - Non-blocking timers |
 | [07_RGB_LED_Strip](examples/07_RGB_LED_Strip) | NeoPixel/WS2812B with effects |
 | [08_Motor_Servo](examples/08_Motor_Servo) | DC motor and servo control |
-| [10_Minimal](examples/10_Minimal) | Simplest possible example |
-| [11_MQTTS_Secure](examples/11_MQTTS_Secure) | Secure TLS connection example |
-| [12_ReliableDelivery](examples/12_ReliableDelivery) | Guaranteed delivery with ACK |
+| [10_Cloud_OTA](examples/10_Cloud_OTA) | Cloud-based OTA firmware updates |
+| [11_Minimal](examples/11_Minimal) | Simplest possible example |
+| [12_MQTTS_Secure](examples/12_MQTTS_Secure) | Secure TLS connection example |
+| [13_ReliableDelivery](examples/13_ReliableDelivery) | Guaranteed delivery with ACK |
 | [14_AP_Mode_Provisioning](examples/14_AP_Mode_Provisioning) | 📡 WiFi provisioning via Access Point |
-| [15_Auto_Provisioning](examples/15_Auto_Provisioning) | ✨ **Recommended** - Auto provisioning (stored creds or AP Mode) |
+| [15_Auto_Provisioning](examples/15_Auto_Provisioning) | ✨ **Recommended** — Auto provisioning |
+| [16_OEM_PreProvisioned](examples/16_OEM_PreProvisioned) | 🏭 Manufacturer pre-provisioned devices |
+| [17_Digital_Pins](examples/17_Digital_Pins) | 🔌 Cloud-controlled digital GPIO pins |
+| [18_Analog_Pins](examples/18_Analog_Pins) | 📊 Cloud-monitored analog inputs |
 
 ---
 

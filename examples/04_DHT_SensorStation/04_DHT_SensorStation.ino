@@ -42,13 +42,6 @@ const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
 // =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-// VWIRE_TRANSPORT_TCP_SSL (port 8883) - Encrypted, RECOMMENDED
-// VWIRE_TRANSPORT_TCP     (port 1883) - Plain TCP, use if SSL not supported
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
-// =============================================================================
 // DHT SENSOR CONFIG
 // =============================================================================
 #define DHT_PIN  4
@@ -272,9 +265,7 @@ void setup() {
   
   // Configure Vwire (uses default server: mqtt.vwire.io)
   Vwire.setDebug(true);
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);  // Use Device ID for MQTT topics
-  Vwire.setTransport(TRANSPORT);
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // ==========================================================================
   // OPTIONAL: Enable Reliable Delivery for critical sensor data

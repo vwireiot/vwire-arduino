@@ -8,8 +8,8 @@
  * - ESP32, ESP8266, Arduino WiFi, RP2040-W, etc.
  * 
  * Features demonstrated:
- * - ANALOG_INPUT mode for ADC readings
- * - OUTPUT mode with smart write: slider (0-255) auto-PWMs
+ *   - ANALOG_INPUT mode for ADC readings (GPIO enabled by default)
+ *   - OUTPUT mode with smart write: slider (0-255) auto-PWMs
  * - Mixed virtual + analog + digital pins in one sketch
  * - Configurable read intervals from the dashboard
  * 
@@ -56,13 +56,6 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
-// =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-// VWIRE_TRANSPORT_TCP_SSL (port 8883) - Encrypted, RECOMMENDED
-// VWIRE_TRANSPORT_TCP     (port 1883) - Plain TCP, use if SSL not supported
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
 // Timer for sending virtual pin status
 VwireTimer statusTimer;
 
@@ -72,15 +65,10 @@ void setup() {
   
   Serial.println("\n=== Vwire IOT — Analog Pin Control Example ===\n");
   
-  // 1. Configure connection
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);  // Device ID used for MQTT topics (required)
-  Vwire.setTransport(TRANSPORT);
+  // 1. Configure connection (TLS and GPIO enabled by default)
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
-  // 2. Enable GPIO management
-  Vwire.enableGPIO();
-  
-  // 3. (Optional) Pre-register pins locally for development / offline use.
+  // (Optional) Pre-register pins locally for development / offline use.
   //    Pin names map directly to board labels — no GPIO numbers needed!
   //    A0/A1 auto-resolve to the correct analog channel on each platform.
   //    D5 as OUTPUT auto-handles both digital (0/1) and PWM (2-255).
@@ -89,10 +77,10 @@ void setup() {
   // Vwire.addGPIOPin("A1", VWIRE_GPIO_ANALOG_INPUT, 2000);  // Temp sensor
   // Vwire.addGPIOPin("D5", VWIRE_GPIO_OUTPUT);              // LED brightness (smart write)
   
-  // 4. Enable debug output (optional)
+  // (Optional) Enable debug output
   Vwire.setDebug(true);
   
-  // 5. Connect to WiFi and Vwire
+  // Connect to WiFi and Vwire
   Serial.println("Connecting...");
   if (Vwire.begin(WIFI_SSID, WIFI_PASSWORD)) {
     Serial.println("Connection successful!");

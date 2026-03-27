@@ -8,8 +8,8 @@
  * - ESP32, ESP8266/NodeMCU, Arduino WiFi, RP2040-W, etc.
  * 
  * Features demonstrated:
- * - enableGPIO() — automatic hardware pin management
- * - Cloud-configured pin modes (OUTPUT, INPUT, INPUT_PULLUP, PWM)
+ *   - Automatic GPIO pin management (enabled by default)
+ *   - Cloud-configured pin modes (OUTPUT, INPUT, INPUT_PULLUP, PWM)
  * - Automatic reading of input pins at configurable intervals
  * - Pin names (D0, D1, ...) map directly to board labels
  * - On ESP8266/NodeMCU: D4 automatically maps to GPIO 2 (built-in LED)
@@ -60,32 +60,16 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
-// =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-// VWIRE_TRANSPORT_TCP_SSL (port 8883) - Encrypted, RECOMMENDED
-// VWIRE_TRANSPORT_TCP     (port 1883) - Plain TCP, use if SSL not supported
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
 void setup() {
   Serial.begin(115200);
   delay(100);
   
   Serial.println("\n=== Vwire IOT — Digital Pin Control Example ===\n");
   
-  // 1. Configure connection
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);  // Device ID used for MQTT topics (required)
-  Vwire.setTransport(TRANSPORT);
+  // 1. Configure connection (TLS and GPIO enabled by default)
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
-  // 2. Enable GPIO management — this tells the library to:
-  //    • Subscribe to the "pinconfig" MQTT topic
-  //    • Automatically set up hardware pin modes from cloud settings
-  //    • Poll input pins and publish state changes
-  //    • Apply incoming commands to output pins (D* topics)
-  Vwire.enableGPIO();
-  
-  // 3. (Optional) Pre-register pins locally for development / offline use.
+  // (Optional) Pre-register pins locally for development / offline use.
   //    Pin names map directly to board labels — no GPIO numbers needed!
   //    On ESP8266/NodeMCU: D4 → GPIO 2 (built-in LED) automatically.
   //    When the device connects, the cloud config overrides these.
@@ -93,10 +77,10 @@ void setup() {
   // Vwire.addGPIOPin("D4",  VWIRE_GPIO_INPUT_PULLUP, 200);      // Button (read every 200ms)
   // Vwire.addGPIOPin("D5",  VWIRE_GPIO_OUTPUT);                 // LED
   
-  // 4. Enable debug output (optional)
+  // (Optional) Enable debug output
   Vwire.setDebug(true);
   
-  // 5. Connect to WiFi and Vwire
+  // Connect to WiFi and Vwire
   Serial.println("Connecting...");
   if (Vwire.begin(WIFI_SSID, WIFI_PASSWORD)) {
     Serial.println("Connection successful!");

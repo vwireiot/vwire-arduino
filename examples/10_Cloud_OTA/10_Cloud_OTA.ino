@@ -52,11 +52,6 @@ const char* AUTH_TOKEN = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID = "YOUR_DEVICE_ID";  // VW-XXXXXX or VU-XXXXXX
 
 // =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
-// =============================================================================
 // PIN DEFINITIONS
 // =============================================================================
 #ifndef LED_BUILTIN
@@ -110,10 +105,8 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   
   // Configure Vwire
-  Vwire.setAuthToken(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);
-  Vwire.setTransport(TRANSPORT);
   Vwire.setDebug(true);
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // Enable Cloud OTA - device will accept firmware updates from dashboard
   #if VWIRE_ENABLE_CLOUD_OTA

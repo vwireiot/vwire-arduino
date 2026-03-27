@@ -44,14 +44,6 @@ const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
 // =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-// Transport protocol options:
-// - VWIRE_TRANSPORT_TCP_SSL (port 8883) - MQTT over TLS/SSL - RECOMMENDED
-// - VWIRE_TRANSPORT_TCP     (port 1883) - Plain MQTT (for boards without SSL support)
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
-// =============================================================================
 // PIN DEFINITIONS
 // =============================================================================
 #if defined(ESP32)
@@ -335,9 +327,7 @@ void setup() {
   
   // Configure Vwire (uses default server: mqtt.vwire.io)
   Vwire.setDebug(true);
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);  // Use Device ID for MQTT topics
-  Vwire.setTransport(TRANSPORT);
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // Connect (handlers auto-registered via VWIRE_RECEIVE macros)
   Vwire.begin(WIFI_SSID, WIFI_PASSWORD);

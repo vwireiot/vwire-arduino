@@ -31,10 +31,6 @@
 #define AUTH_TOKEN    "your_device_auth_token"
 #define DEVICE_ID     "your_device_id"  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
-// Transport: VWIRE_TRANSPORT_TCP_SSL (port 8883) - TLS encrypted ✅ RECOMMENDED
-//           VWIRE_TRANSPORT_TCP     (port 1883) - Plain (for boards without SSL)
-#define TRANSPORT     VWIRE_TRANSPORT_TCP_SSL
-
 // ============================================================================
 // PINS
 // ============================================================================
@@ -109,11 +105,9 @@ void setup() {
   digitalWrite(LED_PIN, LOW);
   #endif
   
-  // Configure Vwire (uses default server mqtt.vwire.io)
-  Vwire.config(AUTH_TOKEN);  // Uses default server and port
-  Vwire.setDeviceId(DEVICE_ID);  // Use Device ID for MQTT topics
-  Vwire.setTransport(TRANSPORT);
+  // Configure Vwire (uses default server mqtt.vwire.io with TLS)
   Vwire.setDebug(true);
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // Note: VWIRE_RECEIVE, VWIRE_CONNECTED, VWIRE_DISCONNECTED macros auto-register!
   
