@@ -49,13 +49,7 @@ const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
 // =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-// VWIRE_TRANSPORT_TCP_SSL (port 8883) - Encrypted, RECOMMENDED
-// VWIRE_TRANSPORT_TCP     (port 1883) - Plain TCP, use if SSL not supported
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
 
-// =============================================================================
 // LED STRIP CONFIGURATION
 // =============================================================================
 #define LED_PIN       5
@@ -280,9 +274,9 @@ VWIRE_RECEIVE(V0) {
 VWIRE_RECEIVE(V1) {
   // zeRGBa sends comma-separated RGB values
   if (param.getArraySize() >= 3) {
-    red = param.getArrayItemInt(0);
-    green = param.getArrayItemInt(1);
-    blue = param.getArrayItemInt(2);
+    red = param.getArrayInt(0);
+    green = param.getArrayInt(1);
+    blue = param.getArrayInt(2);
   }
   
   Serial.printf("Color: R=%d G=%d B=%d\n", red, green, blue);
@@ -359,10 +353,11 @@ void setup() {
   clearLEDs();
   
   // Configure Vwire (uses default server: mqtt.vwire.io)
-  Vwire.setDebug(true);
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);  // Use Device ID for MQTT topics
-  Vwire.setTransport(TRANSPORT);
+  // Optional logging:
+  // Vwire.logTo(Serial);  // Recommended: print library logs to Serial
+  // Vwire.onLog([](const char* msg) { Serial.println(msg); });
+  // Vwire.disableLog();   // Silent mode (default)
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // Note: VWIRE_RECEIVE(), VWIRE_CONNECTED(), and VWIRE_DISCONNECTED() macros
   // automatically register handlers - no manual registration needed!

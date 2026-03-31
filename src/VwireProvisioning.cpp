@@ -10,6 +10,14 @@
 
 #include "VwireProvisioning.h"
 #include <stdarg.h>
+
+#if VWIRE_ENABLE_LOGGING
+  #define VWIRE_LOG(message) _debugPrint(message)
+  #define VWIRE_LOGF(...) _debugPrintf(__VA_ARGS__)
+#else
+  #define VWIRE_LOG(message) do { } while (0)
+  #define VWIRE_LOGF(...) do { } while (0)
+#endif
 #include <ArduinoJson.h>
 
 // =============================================================================
@@ -174,6 +182,7 @@ VwireProvisioningClass::VwireProvisioningClass()
   , _progressCallback(nullptr)
   , _debug(false)
   , _debugStream(&Serial)
+  , _logCallback(nullptr)
   #if VWIRE_HAS_AP_PROVISIONING
   , _webServer(nullptr)
   , _pendingStopAP(false)
@@ -224,7 +233,7 @@ bool VwireProvisioningClass::saveCredentials(const char* ssid, const char* passw
     memcpy(_credentials.ssid, ssid, len);
     _credentials.ssid[len] = '\0';
   } else {
-    _debugPrint("[Provision] ERROR: SSID is required!");
+    VWIRE_LOG("[Provision] ERROR: SSID is required!");
     return false;
   }
   
@@ -248,7 +257,7 @@ bool VwireProvisioningClass::saveCredentials(const char* ssid, const char* passw
   _credentials.checksum = _credentials.calcChecksum();
   _credentialsLoaded = true;
   
-  _debugPrintf("[Provision] Saving - SSID:%s (%d) Pass:%d Token:%d chars", 
+  VWIRE_LOGF("[Provision] Saving - SSID:%s (%d) Pass:%d Token:%d chars", 
                _credentials.ssid, strlen(_credentials.ssid),
                strlen(_credentials.password), strlen(_credentials.authToken));
   
@@ -284,7 +293,7 @@ const char* VwireProvisioningClass::getAuthToken() {
 // ESP32 uses Preferences library (NVS) - robust implementation
 bool VwireProvisioningClass::_loadFromStorage() {
   if (!_preferences.begin(VWIRE_PROV_NAMESPACE, true)) {  // Read-only
-    _debugPrint("[Provision] Failed to open NVS namespace");
+    VWIRE_LOG("[Provision] Failed to open NVS namespace");
     return false;
   }
   
@@ -292,13 +301,13 @@ bool VwireProvisioningClass::_loadFromStorage() {
   _preferences.end();
   
   if (len != sizeof(_credentials)) {
-    _debugPrintf("[Provision] NVS size mismatch: %d vs %d", len, sizeof(_credentials));
+    VWIRE_LOGF("[Provision] NVS size mismatch: %d vs %d", len, sizeof(_credentials));
     _credentials.init();
     return false;
   }
   
   if (_credentials.magic != VWIRE_PROV_MAGIC) {
-    _debugPrintf("[Provision] NVS magic mismatch: 0x%04X", _credentials.magic);
+    VWIRE_LOGF("[Provision] NVS magic mismatch: 0x%04X", _credentials.magic);
     _credentials.init();
     return false;
   }
@@ -306,12 +315,12 @@ bool VwireProvisioningClass::_loadFromStorage() {
   uint8_t storedChecksum = _credentials.checksum;
   uint8_t calcedChecksum = _credentials.calcChecksum();
   if (storedChecksum != calcedChecksum) {
-    _debugPrintf("[Provision] NVS checksum mismatch: 0x%02X vs 0x%02X", storedChecksum, calcedChecksum);
+    VWIRE_LOGF("[Provision] NVS checksum mismatch: 0x%02X vs 0x%02X", storedChecksum, calcedChecksum);
     _credentials.init();
     return false;
   }
   
-  _debugPrintf("[Provision] Loaded from NVS - SSID:%s Token:%d chars", 
+  VWIRE_LOGF("[Provision] Loaded from NVS - SSID:%s Token:%d chars", 
                _credentials.ssid, strlen(_credentials.authToken));
   return true;
 }
@@ -321,7 +330,7 @@ bool VwireProvisioningClass::_saveToStorage() {
   _credentials.checksum = _credentials.calcChecksum();
   
   if (!_preferences.begin(VWIRE_PROV_NAMESPACE, false)) {  // Read-write
-    _debugPrint("[Provision] Failed to open NVS for write");
+    VWIRE_LOG("[Provision] Failed to open NVS for write");
     return false;
   }
   
@@ -329,11 +338,11 @@ bool VwireProvisioningClass::_saveToStorage() {
   _preferences.end();
   
   if (written != sizeof(_credentials)) {
-    _debugPrintf("[Provision] NVS write failed: %d vs %d", written, sizeof(_credentials));
+    VWIRE_LOGF("[Provision] NVS write failed: %d vs %d", written, sizeof(_credentials));
     return false;
   }
   
-  _debugPrintf("[Provision] Saved to NVS - SSID:%s Token:%d chars", 
+  VWIRE_LOGF("[Provision] Saved to NVS - SSID:%s Token:%d chars", 
                _credentials.ssid, strlen(_credentials.authToken));
   return true;
 }
@@ -344,7 +353,7 @@ bool VwireProvisioningClass::_clearStorage() {
   }
   _preferences.clear();
   _preferences.end();
-  _debugPrint("[Provision] NVS credentials cleared");
+  VWIRE_LOG("[Provision] NVS credentials cleared");
   return true;
 }
 
@@ -366,7 +375,7 @@ bool VwireProvisioningClass::_loadFromStorage() {
   
   // Validate magic number
   if (_credentials.magic != VWIRE_PROV_MAGIC) {
-    _debugPrintf("[Provision] EEPROM magic mismatch: 0x%04X (expected 0x%04X)", _credentials.magic, VWIRE_PROV_MAGIC);
+    VWIRE_LOGF("[Provision] EEPROM magic mismatch: 0x%04X (expected 0x%04X)", _credentials.magic, VWIRE_PROV_MAGIC);
     _credentials.init();
     return false;
   }
@@ -380,8 +389,8 @@ bool VwireProvisioningClass::_loadFromStorage() {
   uint8_t storedChecksum = _credentials.checksum;
   uint8_t calcedChecksum = _credentials.calcChecksum();
   if (storedChecksum != calcedChecksum) {
-    _debugPrintf("[Provision] EEPROM checksum mismatch: 0x%02X vs 0x%02X", storedChecksum, calcedChecksum);
-    _debugPrintf("[Provision] Raw SSID len:%d Pass len:%d Token len:%d",
+    VWIRE_LOGF("[Provision] EEPROM checksum mismatch: 0x%02X vs 0x%02X", storedChecksum, calcedChecksum);
+    VWIRE_LOGF("[Provision] Raw SSID len:%d Pass len:%d Token len:%d",
                  strlen(_credentials.ssid), strlen(_credentials.password), strlen(_credentials.authToken));
     _credentials.init();
     return false;
@@ -389,12 +398,12 @@ bool VwireProvisioningClass::_loadFromStorage() {
   
   // Validate SSID is not empty
   if (strlen(_credentials.ssid) == 0) {
-    _debugPrint("[Provision] EEPROM SSID is empty");
+    VWIRE_LOG("[Provision] EEPROM SSID is empty");
     _credentials.init();
     return false;
   }
   
-  _debugPrintf("[Provision] Loaded from EEPROM OK - SSID:%s (%d) Pass:%d Token:%d", 
+  VWIRE_LOGF("[Provision] Loaded from EEPROM OK - SSID:%s (%d) Pass:%d Token:%d", 
                _credentials.ssid, strlen(_credentials.ssid),
                strlen(_credentials.password), strlen(_credentials.authToken));
   return true;
@@ -416,7 +425,7 @@ bool VwireProvisioningClass::_saveToStorage() {
   
   if (!result) {
     EEPROM.end();
-    _debugPrint("[Provision] EEPROM commit failed!");
+    VWIRE_LOG("[Provision] EEPROM commit failed!");
     return false;
   }
   
@@ -431,11 +440,11 @@ bool VwireProvisioningClass::_saveToStorage() {
   
   // Compare what we wrote vs what we read
   if (memcmp(&_credentials, &verify, sizeof(_credentials)) != 0) {
-    _debugPrint("[Provision] EEPROM verify failed - data mismatch!");
+    VWIRE_LOG("[Provision] EEPROM verify failed - data mismatch!");
     return false;
   }
   
-  _debugPrintf("[Provision] Saved to EEPROM - SSID:%s Token:%d chars (verified)", 
+  VWIRE_LOGF("[Provision] Saved to EEPROM - SSID:%s Token:%d chars (verified)", 
                _credentials.ssid, strlen(_credentials.authToken));
   return true;
 }
@@ -451,7 +460,7 @@ bool VwireProvisioningClass::_clearStorage() {
   bool result = EEPROM.commit();
   EEPROM.end();
   
-  _debugPrint("[Provision] EEPROM credentials cleared");
+  VWIRE_LOG("[Provision] EEPROM credentials cleared");
   return result;
 }
 
@@ -494,10 +503,11 @@ bool VwireProvisioningClass::startAPMode(const char* apSSID, const char* apPassw
   // Store OEM mode flag
   _oemMode = oemMode;
   
-  _debugPrintf("[Provision] Starting AP Mode: %s (OEM Mode: %s)", apSSID, oemMode ? "YES" : "NO");
+  VWIRE_LOGF("[Provision] Starting AP Mode: %s (OEM Mode: %s)", apSSID, oemMode ? "YES" : "NO");
   
   // Store AP SSID for retrieval
   strncpy(_apSSID, apSSID, VWIRE_PROV_MAX_SSID_LEN - 1);
+  _apSSID[VWIRE_PROV_MAX_SSID_LEN - 1] = '\0';
   
   // Disconnect and set to AP mode
   WiFi.disconnect(true);
@@ -509,20 +519,20 @@ bool VwireProvisioningClass::startAPMode(const char* apSSID, const char* apPassw
   bool started;
   if (apPassword && strlen(apPassword) >= 8) {
     started = WiFi.softAP(apSSID, apPassword);
-    _debugPrintf("[Provision] AP started with password");
+    VWIRE_LOGF("[Provision] AP started with password");
   } else {
     started = WiFi.softAP(apSSID);
-    _debugPrintf("[Provision] AP started (open network)");
+    VWIRE_LOGF("[Provision] AP started (open network)");
   }
   
   if (!started) {
-    _debugPrint("[Provision] Failed to start AP!");
+    VWIRE_LOG("[Provision] Failed to start AP!");
     return false;
   }
   
   delay(100);
   
-  _debugPrintf("[Provision] AP IP: %s", WiFi.softAPIP().toString().c_str());
+  VWIRE_LOGF("[Provision] AP IP: %s", WiFi.softAPIP().toString().c_str());
   
   // Setup web server
   _setupAPWebServer();
@@ -547,7 +557,7 @@ void VwireProvisioningClass::stopAPMode() {
     WiFi.softAPdisconnect(true);
     _state = VWIRE_PROV_IDLE;
     _method = VWIRE_PROV_METHOD_NONE;
-    _debugPrint("[Provision] AP Mode stopped");
+    VWIRE_LOG("[Provision] AP Mode stopped");
   }
 }
 
@@ -587,7 +597,7 @@ void VwireProvisioningClass::_setupAPWebServer() {
   _webServer->onNotFound([this]() { this->_handleNotFound(); });
   
   _webServer->begin();
-  _debugPrint("[Provision] Web server started on port 80");
+  VWIRE_LOG("[Provision] Web server started on port 80");
 }
 
 void VwireProvisioningClass::_handleRoot() {
@@ -685,7 +695,7 @@ void VwireProvisioningClass::_handleRoot() {
 }
 
 void VwireProvisioningClass::_handleConfig() {
-  _debugPrint("[Provision] Received configuration request");
+  VWIRE_LOG("[Provision] Received configuration request");
   
   // Extract credentials. Prefer form-encoded fields, but fall back to JSON body.
   String ssid;
@@ -727,7 +737,7 @@ void VwireProvisioningClass::_handleConfig() {
   // In end-user mode, token comes from form and must be saved
   if (_oemMode) {
     // OEM mode: token is hardcoded in firmware, just save WiFi
-    _debugPrintf("[Provision] OEM Mode - Saving WiFi only (token is in firmware)");
+    VWIRE_LOGF("[Provision] OEM Mode - Saving WiFi only (token is in firmware)");
     token = "";  // Don't store token in OEM mode
   } else {
     // End-user mode: require token from form
@@ -737,7 +747,7 @@ void VwireProvisioningClass::_handleConfig() {
     }
   }
   
-  _debugPrintf("[Provision] Received - SSID: %s, Token: %s", ssid.c_str(), _oemMode ? "(OEM-firmware)" : token.c_str());
+  VWIRE_LOGF("[Provision] Received - SSID: %s, Token: %s", ssid.c_str(), _oemMode ? "(OEM-firmware)" : token.c_str());
   
   // Save credentials (token empty in OEM mode - it's in firmware)
   if (!saveCredentials(ssid.c_str(), password.c_str(), token.c_str())) {
@@ -791,17 +801,17 @@ void VwireProvisioningClass::run() {
       delay(500);
       if (_connectToWiFi()) {
         _setState(VWIRE_PROV_SUCCESS);
-        _debugPrint("[Provision] AP Mode provisioning successful!");
+        VWIRE_LOG("[Provision] AP Mode provisioning successful!");
       } else {
         _setState(VWIRE_PROV_FAILED);
-        _debugPrint("[Provision] AP Mode failed - could not connect to WiFi");
+        VWIRE_LOG("[Provision] AP Mode failed - could not connect to WiFi");
       }
       _handshakeConfirmed = false; // reset for next provisioning
     }
 
     // Check for timeout
     if (_timeout > 0 && (millis() - _startTime) >= _timeout) {
-      _debugPrint("[Provision] AP Mode timeout!");
+      VWIRE_LOG("[Provision] AP Mode timeout!");
       stopAPMode();
       _setState(VWIRE_PROV_TIMEOUT);
     }
@@ -843,7 +853,7 @@ void VwireProvisioningClass::_setState(VwireProvisioningState state) {
 }
 
 bool VwireProvisioningClass::_connectToWiFi(unsigned long timeout) {
-  _debugPrintf("[Provision] Connecting to WiFi: %s", _credentials.ssid);
+  VWIRE_LOGF("[Provision] Connecting to WiFi: %s", _credentials.ssid);
   
   WiFi.mode(WIFI_STA);
   WiFi.begin(_credentials.ssid, _credentials.password);
@@ -851,16 +861,16 @@ bool VwireProvisioningClass::_connectToWiFi(unsigned long timeout) {
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    _debugPrint(".");
+    VWIRE_LOG(".");
     yield();
     
     if (millis() - start >= timeout) {
-      _debugPrint("\n[Provision] WiFi connection timeout!");
+      VWIRE_LOG("\n[Provision] WiFi connection timeout!");
       return false;
     }
   }
   
-  _debugPrintf("\n[Provision] WiFi connected! IP: %s", WiFi.localIP().toString().c_str());
+  VWIRE_LOGF("\n[Provision] WiFi connected! IP: %s", WiFi.localIP().toString().c_str());
   return true;
 }
 
@@ -892,19 +902,41 @@ void VwireProvisioningClass::setDebugStream(Stream& stream) {
   _debugStream = &stream;
 }
 
+void VwireProvisioningClass::logTo(Stream& stream) {
+  _debugStream = &stream;
+  _debug = true;
+  _logCallback = nullptr;
+}
+
+void VwireProvisioningClass::onLog(VwireLogCallback cb) {
+  _logCallback = cb;
+}
+
+void VwireProvisioningClass::disableLog() {
+  _debug = false;
+  _logCallback = nullptr;
+}
+
 void VwireProvisioningClass::_debugPrint(const char* message) {
-  if (_debug && _debugStream) {
+  if (_logCallback) {
+    _logCallback(message);
+  } else if (_debug && _debugStream) {
     _debugStream->println(message);
   }
 }
 
 void VwireProvisioningClass::_debugPrintf(const char* format, ...) {
-  if (_debug && _debugStream) {
-    char buffer[256];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
+  if (!_logCallback && !(_debug && _debugStream)) return;
+
+  char buffer[256];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buffer, sizeof(buffer), format, args);
+  va_end(args);
+
+  if (_logCallback) {
+    _logCallback(buffer);
+  } else {
     _debugStream->println(buffer);
   }
 }

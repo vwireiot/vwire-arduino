@@ -24,7 +24,7 @@
 // =============================================================================
 
 /** @brief Library version string */
-#define VWIRE_VERSION "1.0.0"
+#define VWIRE_VERSION "2.0.0"
 
 // =============================================================================
 // BOARD DETECTION
@@ -94,13 +94,52 @@
 // CLOUD OTA CONFIGURATION
 // =============================================================================
 /**
+ * @brief Global feature toggles
+ *
+ * These flags are intended for the library build, not just a single sketch
+ * translation unit. In Arduino IDE builds, sketch-local defines do not reliably
+ * control separately compiled library source files.
+ */
+
+#if !defined(VWIRE_DISABLE_LOGGING)
+  #define VWIRE_ENABLE_LOGGING 1
+#else
+  #define VWIRE_ENABLE_LOGGING 0
+#endif
+
+#if !defined(VWIRE_DISABLE_GPIO)
+  #define VWIRE_ENABLE_GPIO 1
+#else
+  #define VWIRE_ENABLE_GPIO 0
+#endif
+
+#if VWIRE_HAS_OTA && !defined(VWIRE_DISABLE_LOCAL_OTA)
+  #define VWIRE_ENABLE_LOCAL_OTA 1
+#else
+  #define VWIRE_ENABLE_LOCAL_OTA 0
+#endif
+
+#if !defined(VWIRE_DISABLE_RELIABLE_DELIVERY)
+  #define VWIRE_ENABLE_RELIABLE_DELIVERY 1
+#else
+  #define VWIRE_ENABLE_RELIABLE_DELIVERY 0
+#endif
+
+#if !defined(VWIRE_DISABLE_ALERTS)
+  #define VWIRE_ENABLE_ALERTS 1
+#else
+  #define VWIRE_ENABLE_ALERTS 0
+#endif
+
+/**
  * @brief Enable Cloud OTA firmware updates via VWire server
  *
  * When enabled, the device can receive firmware update commands from the
  * VWire cloud platform via MQTT and download binaries over HTTP(S).
  * Only available on boards with VWIRE_HAS_OTA (ESP32/ESP8266).
  *
- * To disable, define VWIRE_DISABLE_CLOUD_OTA before including Vwire.h.
+ * To strip Cloud OTA at compile time, define VWIRE_DISABLE_CLOUD_OTA as a
+ * global build flag for the library build.
  */
 #if VWIRE_HAS_OTA && !defined(VWIRE_DISABLE_CLOUD_OTA)
   #define VWIRE_ENABLE_CLOUD_OTA 1
@@ -214,5 +253,72 @@ typedef enum {
   VWIRE_ERR_SSL_FAILED,          ///< TLS/SSL connection failed
   VWIRE_ERR_QUEUE_FULL           ///< Reliable delivery queue full
 } VwireError;
+
+// =============================================================================
+// GPIO MODES
+// =============================================================================
+
+/**
+ * @brief GPIO pin modes shared by the core convenience API and GPIO addon
+ */
+typedef enum {
+  VWIRE_GPIO_OUTPUT       = 0,   ///< Digital/PWM output (0-1 digital, 2-255 PWM)
+  VWIRE_GPIO_INPUT        = 1,   ///< Digital input (floating)
+  VWIRE_GPIO_INPUT_PULLUP = 2,   ///< Digital input with pull-up
+  VWIRE_GPIO_PWM          = 3,   ///< PWM output alias (kept for compatibility)
+  VWIRE_GPIO_ANALOG_INPUT = 4,   ///< Analog input (ADC reading)
+  VWIRE_GPIO_DISABLED     = 255  ///< Pin not managed
+} VwireGPIOMode;
+
+/**
+ * @brief Callback for log/debug output
+ * @param message Log message (newline NOT included)
+ */
+typedef void (*VwireLogCallback)(const char* message);
+
+/**
+ * @brief Callback for reliable delivery status
+ * @param msgId Unique message identifier
+ * @param success true if acknowledged, false if dropped after retries
+ */
+typedef void (*DeliveryCallback)(const char* msgId, bool success);
+
+// =============================================================================
+// ADDON SYSTEM
+// =============================================================================
+
+/** @brief Maximum number of addons that can be registered */
+#ifndef VWIRE_MAX_ADDONS
+  #define VWIRE_MAX_ADDONS 4
+#endif
+
+// Forward declaration
+class VwireClass;
+
+/**
+ * @brief Base class for modular addons
+ *
+ * Extend this class to create self-contained feature modules that plug into
+ * the Vwire core.  Register with `Vwire.addAddon(myAddon)` before `begin()`.
+ *
+ * Lifecycle hooks (all optional):
+ *   onAttach()     — called once when the addon is registered
+ *   onConnect()    — called after MQTT connects (subscribe here)
+ *   onDisconnect() — called when connection drops
+ *   onMessage()    — called for every incoming MQTT message; return true
+ *                     if the addon handled it (stops further dispatch)
+ *   onRun()        — called every run() iteration while connected
+ */
+class VwireAddon {
+public:
+  virtual ~VwireAddon() {}
+  virtual void onAttach(VwireClass& vwire) { (void)vwire; }
+  virtual void onConnect() {}
+  virtual void onDisconnect() {}
+  virtual bool onMessage(const char* topic, const char* payload) {
+    (void)topic; (void)payload; return false;
+  }
+  virtual void onRun() {}
+};
 
 #endif // VWIRE_CONFIG_H

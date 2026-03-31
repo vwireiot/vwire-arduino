@@ -14,14 +14,22 @@
 #define WIFI_SSID     "YOUR_WIFI"
 #define WIFI_PASS     "YOUR_PASSWORD"
 #define AUTH_TOKEN    "YOUR_AUTH_TOKEN"
-#define DEVICE_ID     "YOUR_DEVICE_ID"  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
+#define DEVICE_ID     "YOUR_DEVICE_ID"  // VW-XXXXXX or VU-XXXXXX
 
 void setup() {
   Serial.begin(115200);
   
-  // Configure and connect (uses default Vwire server with TLS)
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);
+  // Optional logging:
+  // Vwire.logTo(Serial);  // Recommended: print library logs to Serial
+  // Vwire.onLog([](const char* msg) { Serial.println(msg); });
+  // Vwire.disableLog();   // Silent mode (default)
+  
+  // Single-call config: TLS by default
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
+
+  // Optional but useful for starter projects: enable GPIO support.
+  Vwire.enableGPIO();
+
   Vwire.begin(WIFI_SSID, WIFI_PASS);
 }
 

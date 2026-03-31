@@ -1,29 +1,24 @@
 /*
  * Vwire IOT - Basic Example
  * 
- * This example works with any WiFi-capable board:
+ * Works with any WiFi-capable board:
  * - ESP32, ESP8266, Arduino WiFi, RP2040-W, etc.
  * 
  * Demonstrates:
  * - Connecting to Vwire IOT platform via MQTTS (TLS)
- * - Sending sensor data to dashboard
- * - Receiving button press from dashboard
- * - LED control using VWIRE_RECEIVE()
- * - Direct GPIO pin control from cloud via enableGPIO()
+ * - LED control using VWIRE_RECEIVE() on a virtual pin
+ * - Enabling cloud-managed GPIO support
+ * - Syncing stored pin values on connect
  *
  * Dashboard Setup:
- * - V0: Button widget (controls LED)
- * - V1: Gauge widget (displays temperature)
- * - V2: Value display (shows counter)
- * - D2/D4/D5: GPIO pins — configure mode in device pin settings,
- *   then control with Button/Slider widgets on the dashboard
+ * - V0: Button/Switch widget (controls built-in LED)
+ * - For GPIO pin control, see examples 15_Digital_Pins and 16_Analog_Pins
  * 
  * Instructions:
  * 1. Create device in Vwire IOT dashboard
- * 2. Copy auth token below
+ * 2. Copy auth token and device ID below
  * 3. Update WiFi credentials
- * 4. Update MQTT broker settings (if self-hosted)
- * 5. Upload to your board
+ * 4. Upload to your board
  * 
  * Copyright (c) 2026 Vwire IOT
  * MIT License
@@ -32,23 +27,12 @@
 #include <Vwire.h>
 
 // =============================================================================
-// WIFI CONFIGURATION
+// CONFIGURATION — UPDATE THESE
 // =============================================================================
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-
-// =============================================================================
-// VWIRE IOT AUTHENTICATION
-// =============================================================================
 const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
-const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
-
-// =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-// VWIRE_TRANSPORT_TCP_SSL (port 8883) - Encrypted, RECOMMENDED for most boards
-// VWIRE_TRANSPORT_TCP     (port 1883) - Plain TCP, use if board doesn't support SSL
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
+const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX or VU-XXXXXX
 
 // =============================================================================
 // PIN DEFINITIONS
@@ -58,93 +42,61 @@ const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
 #endif
 
 // =============================================================================
-// GLOBAL VARIABLES
-// =============================================================================
-bool ledState = false;
-int counter = 0;
-unsigned long lastSend = 0;
-const unsigned long SEND_INTERVAL = 2000;  // Send data every 2 seconds
-
-// =============================================================================
 // VIRTUAL PIN HANDLERS
 // =============================================================================
 
-// V0 - Button widget handler
-// Automatically registered - no need to call Vwire.onVirtualReceive()!
+// V0 — Button/Switch widget controls the built-in LED
 VWIRE_RECEIVE(V0) {
-  ledState = param.asBool();
-  digitalWrite(LED_BUILTIN, ledState ? HIGH : LOW);
-  
+  bool on = param.asBool();
+  digitalWrite(LED_BUILTIN, on ? HIGH : LOW);
   Serial.print("LED: ");
-  Serial.println(ledState ? "ON" : "OFF");
+  Serial.println(on ? "ON" : "OFF");
 }
 
 // =============================================================================
-// CONNECTION HANDLERS 
+// CONNECTION HANDLERS
 // =============================================================================
 
 VWIRE_CONNECTED() {
-  Serial.println("✓ Connected to Vwire IOT!");
-  
-  // Request stored values from server (useful after power cycle)
-  Vwire.sync(V0);  // Sync LED state
-  
-  // Or sync multiple pins at once:
-  // Vwire.sync(V0, V1, V2);
-  // Vwire.syncAll();  // Sync all pins
-  
-  // Print connection info
-  Vwire.printDebugInfo();
+  Serial.println("Connected to Vwire IOT!");
+  // Sync only the LED state on connect (optional)
+  // Vwire.sync(V0);  // Restore LED state after power cycle
+  // Sync all pins with stored values on connect (optional)
+  Vwire.syncAll();
 }
 
 VWIRE_DISCONNECTED() {
-  Serial.println("✗ Disconnected from Vwire IOT!");
+  Serial.println("Disconnected from Vwire IOT!");
 }
 
 // =============================================================================
 // SETUP
 // =============================================================================
 void setup() {
-  // Initialize serial
   Serial.begin(115200);
   delay(1000);
   
-  Serial.println();
-  Serial.println("================================");
-  Serial.println("  Vwire IOT - Basic Example");
-  Serial.println("================================");
-  Serial.println();
-  
-  // Initialize LED
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
+
+  // Optional logging:
+  // Vwire.logTo(Serial);  // Recommended: print library logs to Serial
+  // Vwire.onLog([](const char* msg) { Serial.println(msg); });
+  // Vwire.disableLog();   // Silent mode (default)
   
-  // Enable debug output
-  Vwire.setDebug(true);
-  
-  // Configure Vwire (uses default server: mqtt.vwire.io)
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);  // Use Device ID for MQTT topics (recommended)
-  Vwire.setTransport(TRANSPORT);
-  
-  // No need to register handlers manually!
-  // VWIRE_RECEIVE(V0), VWIRE_CONNECTED(), VWIRE_DISCONNECTED() 
-  // are auto-registered at startup.
-  
-  // Enable GPIO management — allows direct hardware pin control from the cloud.
-  // Configure pin modes (OUTPUT, INPUT, PWM, etc.) in the device's pin settings
-  // on the Vwire dashboard. A Button widget (0/1) toggles an output pin;
-  // a Slider widget (0-255) drives PWM. No extra code needed.
+  // Single-call config: auth token + device ID
+  // TLS is the default transport
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
+
+  // Enable cloud-managed GPIO support.
+  // This lets you use D*/A* pins from the dashboard when needed.
   Vwire.enableGPIO();
   
   // Connect to WiFi and Vwire
-  Serial.println("Connecting...");
   if (Vwire.begin(WIFI_SSID, WIFI_PASSWORD)) {
     Serial.println("Connection successful!");
   } else {
     Serial.println("Connection failed!");
-    Serial.print("Error code: ");
-    Serial.println(Vwire.getLastError());
   }
 }
 
@@ -152,24 +104,5 @@ void setup() {
 // MAIN LOOP
 // =============================================================================
 void loop() {
-  // IMPORTANT: Must call run() frequently
   Vwire.run();
-  
-  // Send sensor data periodically
-  if (Vwire.connected() && millis() - lastSend >= SEND_INTERVAL) {
-    lastSend = millis();
-    
-    // Simulate temperature reading (replace with actual sensor)
-    float temperature = 20.0 + random(0, 100) / 10.0;
-    
-    // Increment counter
-    counter++;
-    
-    // Send to dashboard
-    Vwire.virtualSend(V1, temperature);  // V1 = Temperature gauge
-    Vwire.virtualSend(V2, counter);      // V2 = Counter display
-    
-    // Print to serial
-    Serial.printf("Sent: Temp=%.1f°C, Counter=%d\n", temperature, counter);
-  }
 }

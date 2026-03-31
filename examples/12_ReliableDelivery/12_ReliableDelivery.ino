@@ -58,10 +58,6 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
-// Transport: Use TCP_SSL (port 8883) for TLS encryption (recommended)
-//            Use TCP (port 1883) for boards without SSL support
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
 // =============================================================================
 // RELIABLE DELIVERY SETTINGS
 // =============================================================================
@@ -176,10 +172,11 @@ void setup() {
   // -----------------------------------------
   // Step 1: Configure Vwire connection
   // -----------------------------------------
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);  // Use Device ID for MQTT topics
-  Vwire.setTransport(TRANSPORT);
-  Vwire.setDebug(true);  // Enable debug output
+  // Optional logging:
+  // Vwire.logTo(Serial);  // Recommended: print library logs to Serial
+  // Vwire.onLog([](const char* msg) { Serial.println(msg); });
+  // Vwire.disableLog();   // Silent mode (default)
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // -----------------------------------------
   // Step 2: Configure Reliable Delivery

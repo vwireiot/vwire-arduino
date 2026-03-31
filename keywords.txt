@@ -1,5 +1,6 @@
 #######################################
 # Syntax Coloring Map for Vwire IOT Library
+# Version 2.0.0
 #######################################
 
 #######################################
@@ -7,45 +8,126 @@
 #######################################
 
 Vwire	KEYWORD1
+VwireClass	KEYWORD1
 VirtualPin	KEYWORD1
 VwireSettings	KEYWORD1
-VwireClass	KEYWORD1
+VwireAddon	KEYWORD1
+VwireTimer	KEYWORD1
+
+# GPIO
+VwireGPIO	KEYWORD1
+VwireGPIOPin	KEYWORD1
+VwireGPIOMode	KEYWORD1
+
+# OTA
+VwireOTAAddon	KEYWORD1
+VwireOTAFeature	KEYWORD1
+
+# Reliable Delivery
+VwireReliableDeliveryAddon	KEYWORD1
+VwireReliableDelivery	KEYWORD1
+
+# Provisioning
+VwireProvision	KEYWORD1
+VwireProvisioningClass	KEYWORD1
+VwireCredentials	KEYWORD1
+
+# Enums (as types)
 VwireState	KEYWORD1
 VwireError	KEYWORD1
 VwireTransport	KEYWORD1
-VwireProvision	KEYWORD1
-VwireProvisioningClass	KEYWORD1
 VwireProvisioningState	KEYWORD1
 VwireProvisioningMethod	KEYWORD1
-VwireCredentials	KEYWORD1
+
+# Typedefs
+PinHandler	KEYWORD1
+ConnectionHandler	KEYWORD1
+RawMessageHandler	KEYWORD1
+VwireLogCallback	KEYWORD1
+DeliveryCallback	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
 #######################################
 
+# VwireClass — Configuration
 config	KEYWORD2
-begin	KEYWORD2
-run	KEYWORD2
-connected	KEYWORD2
-disconnect	KEYWORD2
-virtualSend	KEYWORD2
-virtualSendf	KEYWORD2
-virtualSendArray	KEYWORD2
-onVirtualReceive	KEYWORD2
-onConnect	KEYWORD2
-onDisconnect	KEYWORD2
-onMessage	KEYWORD2
-notify	KEYWORD2
-email	KEYWORD2
-log	KEYWORD2
-enableOTA	KEYWORD2
-handleOTA	KEYWORD2
-setDebug	KEYWORD2
-setDebugStream	KEYWORD2
+setDeviceId	KEYWORD2
+setHostname	KEYWORD2
 setTransport	KEYWORD2
 setAutoReconnect	KEYWORD2
 setReconnectInterval	KEYWORD2
 setHeartbeatInterval	KEYWORD2
+setDataQoS	KEYWORD2
+setDataRetain	KEYWORD2
+
+# VwireClass — Connection
+begin	KEYWORD2
+run	KEYWORD2
+connected	KEYWORD2
+disconnect	KEYWORD2
+
+# VwireClass — Virtual Pins
+virtualSend	KEYWORD2
+virtualSendf	KEYWORD2
+virtualSendArray	KEYWORD2
+onVirtualReceive	KEYWORD2
+syncVirtual	KEYWORD2
+syncAll	KEYWORD2
+sync	KEYWORD2
+
+# VwireClass — Events
+onConnect	KEYWORD2
+onDisconnect	KEYWORD2
+onMessage	KEYWORD2
+
+# VwireClass — Messaging / Alerts
+notify	KEYWORD2
+alarm	KEYWORD2
+email	KEYWORD2
+log	KEYWORD2
+
+# VwireClass — Reliable Delivery
+setReliableDelivery	KEYWORD2
+setAckTimeout	KEYWORD2
+setMaxRetries	KEYWORD2
+onDeliveryStatus	KEYWORD2
+getPendingCount	KEYWORD2
+isDeliveryPending	KEYWORD2
+
+# VwireClass — OTA
+enableOTA	KEYWORD2
+handleOTA	KEYWORD2
+enableCloudOTA	KEYWORD2
+disableCloudOTA	KEYWORD2
+isCloudOTAEnabled	KEYWORD2
+
+# VwireClass — GPIO Convenience API
+enableGPIO	KEYWORD2
+useGPIO	KEYWORD2
+isGPIOEnabled	KEYWORD2
+addGPIOPin	KEYWORD2
+removeGPIOPin	KEYWORD2
+clearGPIOPins	KEYWORD2
+gpioWrite	KEYWORD2
+gpioRead	KEYWORD2
+gpioSend	KEYWORD2
+getGPIOPinCount	KEYWORD2
+
+# VwireClass — Addon System
+addAddon	KEYWORD2
+publish	KEYWORD2
+subscribe	KEYWORD2
+
+# VwireClass — Logging
+onLog	KEYWORD2
+logTo	KEYWORD2
+disableLog	KEYWORD2
+setDebug	KEYWORD2
+setDebugStream	KEYWORD2
+printDebugInfo	KEYWORD2
+
+# VwireClass — Device Info
 getState	KEYWORD2
 getLastError	KEYWORD2
 getDeviceId	KEYWORD2
@@ -54,9 +136,30 @@ getVersion	KEYWORD2
 getFreeHeap	KEYWORD2
 getUptime	KEYWORD2
 getWiFiRSSI	KEYWORD2
-printDebugInfo	KEYWORD2
-syncVirtual	KEYWORD2
-syncAll	KEYWORD2
+
+# VwireGPIO Methods
+addPin	KEYWORD2
+removePin	KEYWORD2
+clearAll	KEYWORD2
+write	KEYWORD2
+read	KEYWORD2
+send	KEYWORD2
+getPinCount	KEYWORD2
+hasPin	KEYWORD2
+getPinValue	KEYWORD2
+
+# VirtualPin Methods
+asInt	KEYWORD2
+asFloat	KEYWORD2
+asDouble	KEYWORD2
+asBool	KEYWORD2
+asString	KEYWORD2
+asCString	KEYWORD2
+getArraySize	KEYWORD2
+getArrayInt	KEYWORD2
+getArrayFloat	KEYWORD2
+getArrayElement	KEYWORD2
+set	KEYWORD2
 
 # Provisioning Methods
 hasCredentials	KEYWORD2
@@ -76,18 +179,27 @@ onStateChange	KEYWORD2
 onCredentialsReceived	KEYWORD2
 onProgress	KEYWORD2
 
-# VirtualPin Methods
-asInt	KEYWORD2
-asFloat	KEYWORD2
-asDouble	KEYWORD2
-asBool	KEYWORD2
-asString	KEYWORD2
-asCString	KEYWORD2
-getArraySize	KEYWORD2
-getArrayInt	KEYWORD2
-getArrayFloat	KEYWORD2
-getArrayElement	KEYWORD2
-set	KEYWORD2
+# VwireTimer Methods
+setInterval	KEYWORD2
+setTimeout	KEYWORD2
+setTimer	KEYWORD2
+deleteTimer	KEYWORD2
+enable	KEYWORD2
+disable	KEYWORD2
+toggle	KEYWORD2
+restartTimer	KEYWORD2
+changeInterval	KEYWORD2
+getRemaining	KEYWORD2
+isEnabled	KEYWORD2
+isValid	KEYWORD2
+getNumTimers	KEYWORD2
+getNumAvailableTimers	KEYWORD2
+getMaxTimers	KEYWORD2
+deleteAllTimers	KEYWORD2
+
+# VwireAddon Lifecycle
+onAttach	KEYWORD2
+onRun	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)
@@ -116,10 +228,15 @@ VWIRE_ERR_BUFFER_FULL	LITERAL1
 VWIRE_ERR_HANDLER_FULL	LITERAL1
 VWIRE_ERR_TIMEOUT	LITERAL1
 VWIRE_ERR_SSL_FAILED	LITERAL1
+VWIRE_ERR_QUEUE_FULL	LITERAL1
 
-# Board Names
-VWIRE_BOARD_NAME	LITERAL1
-VWIRE_VERSION	LITERAL1
+# GPIO Pin Modes
+VWIRE_GPIO_OUTPUT	LITERAL1
+VWIRE_GPIO_INPUT	LITERAL1
+VWIRE_GPIO_INPUT_PULLUP	LITERAL1
+VWIRE_GPIO_PWM	LITERAL1
+VWIRE_GPIO_ANALOG_INPUT	LITERAL1
+VWIRE_GPIO_DISABLED	LITERAL1
 
 # Provisioning States
 VWIRE_PROV_IDLE	LITERAL1
@@ -133,14 +250,23 @@ VWIRE_PROV_TIMEOUT	LITERAL1
 VWIRE_PROV_METHOD_NONE	LITERAL1
 VWIRE_PROV_METHOD_AP	LITERAL1
 
+# Timer Constants
+VWIRE_TIMER_INVALID	LITERAL1
+VWIRE_RUN_FOREVER	LITERAL1
+
+# Version & Board
+VWIRE_VERSION	LITERAL1
+VWIRE_BOARD_NAME	LITERAL1
+
 # Feature Flags
 VWIRE_HAS_AP_PROVISIONING	LITERAL1
+VWIRE_HAS_OTA	LITERAL1
+VWIRE_ENABLE_CLOUD_OTA	LITERAL1
 
 #######################################
 # Macros (KEYWORD3)
 #######################################
 
 VWIRE_RECEIVE	KEYWORD3
-VWIRE_READ	KEYWORD3
 VWIRE_CONNECTED	KEYWORD3
 VWIRE_DISCONNECTED	KEYWORD3

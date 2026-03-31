@@ -234,7 +234,10 @@ void setup() {
   // The auth token is the secret key used for MQTT authentication
   Serial.printf("[OEM] Configuring with auth token (length: %d)\n", strlen(VWIRE_AUTH_TOKEN));
   Vwire.config(VWIRE_AUTH_TOKEN);
-  Vwire.setDebug(true);  // Enable debug output
+  // Optional logging:
+  // Vwire.logTo(Serial);  // Recommended: print library logs to Serial
+  // Vwire.onLog([](const char* msg) { Serial.println(msg); });
+  // Vwire.disableLog();   // Silent mode (default)
   
   // Set connection handlers
   Vwire.onConnect(onVwireConnected);
@@ -242,7 +245,10 @@ void setup() {
 
   // Set provisioning callbacks
   VwireProvision.onStateChange(onProvisioningStateChanged);
-  VwireProvision.setDebug(true);
+  // Provisioning logging options:
+  // VwireProvision.logTo(Serial);  // Recommended: print provisioning logs to Serial
+  // VwireProvision.onLog([](const char* msg) { Serial.println(msg); });
+  // VwireProvision.disableLog();   // Silent mode (default)
 
   // Check if WiFi credentials are stored
   if (VwireProvision.hasCredentials()) {

@@ -23,7 +23,6 @@
 #include <Arduino.h>
 #include "VwireConfig.h"
 #include "VwireTimer.h"
-#include "VwireGPIO.h"
 
 // =============================================================================
 // PLATFORM-SPECIFIC INCLUDES
@@ -31,22 +30,10 @@
 #if defined(VWIRE_BOARD_ESP32)
   #include <WiFi.h>
   #include <WiFiClientSecure.h>
-  #if VWIRE_HAS_OTA
-    #include <ArduinoOTA.h>
-  #endif
-  #if VWIRE_ENABLE_CLOUD_OTA
-    #include <HTTPUpdate.h>
-  #endif
   
 #elif defined(VWIRE_BOARD_ESP8266)
   #include <ESP8266WiFi.h>
   #include <WiFiClientSecure.h>
-  #if VWIRE_HAS_OTA
-    #include <ArduinoOTA.h>
-  #endif
-  #if VWIRE_ENABLE_CLOUD_OTA
-    #include <ESP8266httpUpdate.h>
-  #endif
   
 #elif defined(VWIRE_BOARD_RP2040)
   #include <WiFi.h>
@@ -63,6 +50,37 @@
 
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+
+class VwireGPIO;
+class VwireReliableDeliveryAddon;
+class VwireOTAAddon;
+
+class VwireReliableDelivery : public VwireAddon {
+public:
+  virtual ~VwireReliableDelivery() {}
+  virtual void setEnabled(bool enable) = 0;
+  virtual bool isEnabled() const = 0;
+  virtual void setAckTimeout(unsigned long timeout) = 0;
+  virtual void setMaxRetries(uint8_t retries) = 0;
+  virtual void onDeliveryStatus(DeliveryCallback cb) = 0;
+  virtual uint8_t getPendingCount() const = 0;
+  virtual bool isPending() const = 0;
+  virtual bool send(uint8_t pin, const String& value) = 0;
+};
+
+class VwireOTAFeature : public VwireAddon {
+public:
+  virtual ~VwireOTAFeature() {}
+  #if VWIRE_HAS_OTA
+  virtual void enableLocal(const char* hostname, const char* password) = 0;
+  virtual void handle() = 0;
+  #endif
+  #if VWIRE_ENABLE_CLOUD_OTA
+  virtual void enableCloud() = 0;
+  virtual void disableCloud() = 0;
+  virtual bool isCloudEnabled() const = 0;
+  #endif
+};
 
 // =============================================================================
 // VIRTUAL PIN CLASS
@@ -241,8 +259,7 @@ private:
 /**
  * @brief Configuration settings for Vwire IOT connection
  * 
- * Contains all configurable parameters for the Vwire client including
- * server connection, timing, and reliable delivery settings.
+ * Contains configurable transport and lifecycle settings for the core client.
  */
 struct VwireSettings {
   char authToken[VWIRE_MAX_TOKEN_LENGTH];     ///< Authentication token from dashboard
@@ -257,19 +274,13 @@ struct VwireSettings {
   uint8_t dataQoS;                             ///< QoS level (note: PubSubClient only supports 0)
   bool dataRetain;                             ///< Retain flag for data writes
   
-  // Reliable Delivery Settings
-  bool reliableDelivery;                       ///< Enable application-level acknowledgments
-  unsigned long ackTimeout;                    ///< Time to wait for ACK before retry (ms)
-  uint8_t maxRetries;                          ///< Max retry attempts before dropping message
-  
   /**
    * @brief Default constructor - initializes with safe defaults
    * 
    * Defaults:
    * - Server: mqtt.vwire.io:8883 (TLS)
    * - Auto-reconnect: enabled, 5 second interval
-   * - Heartbeat: 30 seconds
-   * - Reliable delivery: disabled
+  * - Heartbeat: 15 seconds
    */
   VwireSettings() {
     memset(authToken, 0, sizeof(authToken));
@@ -283,11 +294,6 @@ struct VwireSettings {
     heartbeatInterval = VWIRE_DEFAULT_HEARTBEAT_INTERVAL;
     wifiTimeout = VWIRE_DEFAULT_WIFI_TIMEOUT;
     mqttTimeout = VWIRE_DEFAULT_MQTT_TIMEOUT;
-    
-    // Reliable Delivery defaults (disabled for backward compatibility)
-    reliableDelivery = false;
-    ackTimeout = VWIRE_DEFAULT_ACK_TIMEOUT;
-    maxRetries = VWIRE_DEFAULT_MAX_RETRIES;
   }
 };
 
@@ -303,13 +309,6 @@ typedef void (*ConnectionHandler)();
 
 /** @brief Handler function for raw MQTT messages */
 typedef void (*RawMessageHandler)(const char* topic, const char* payload);
-
-/**
- * @brief Callback for reliable delivery status
- * @param msgId Unique message identifier
- * @param success true if acknowledged, false if dropped after retries
- */
-typedef void (*DeliveryCallback)(const char* msgId, bool success);
 
 // =============================================================================
 // AUTO-REGISTRATION SYSTEM
@@ -384,13 +383,6 @@ void _vwireRegisterDisconnectHandler(ConnectionHandler handler);
     } \
   } _VWIRE_UNIQUE(_vwireAutoRegInstance_, __LINE__); \
   void _vwire_receive_handler_##vpin(VirtualPin& param)
-
-/**
- * @brief Placeholder for read requests (server requests data from device)
- * @param vpin Virtual pin number
- */
-#define VWIRE_READ(vpin) \
-  void _vwire_read_handler_##vpin()
 
 /**
  * @brief Register handler for connection events
@@ -508,24 +500,29 @@ public:
   // =========================================================================
   
   /**
-   * @brief Configure with auth token only (uses default server)
-   * @param authToken Authentication token from Vwire IOT dashboard
+   * @brief Configure the Vwire connection
+   * 
+   * Single-call configuration. Uses default Vwire server (mqtt.vwire.io)
+   * with TLS encryption.
+   * 
+   * @param authToken   Authentication token from Vwire IOT dashboard
+   * @param deviceId    Device ID from dashboard (e.g., "VW-ABC123"), or nullptr
+   *                    to use the auth token as device ID (provisioning flows)
+   * @param transport   Transport protocol (default: VWIRE_TRANSPORT_TCP_SSL)
+   * 
+   * @code
+   * // Standard usage — TLS:
+   * Vwire.config(AUTH_TOKEN, DEVICE_ID);
+   * 
+   * // Provisioning (device ID not yet known):
+   * Vwire.config(AUTH_TOKEN);
+   * 
+   * // Plain TCP for boards without SSL support:
+   * Vwire.config(AUTH_TOKEN, DEVICE_ID, VWIRE_TRANSPORT_TCP);
+   * @endcode
    */
-  void config(const char* authToken);
-  
-  /**
-   * @brief Configure with auth token, server, and port
-   * @param authToken Authentication token from Vwire IOT dashboard
-   * @param server MQTT broker hostname or IP address
-   * @param port MQTT broker port (1883=TCP, 8883=TLS)
-   */
-  void config(const char* authToken, const char* server, uint16_t port);
-  
-  /**
-   * @brief Configure with complete settings structure
-   * @param settings VwireSettings structure with all options
-   */
-  void config(const VwireSettings& settings);
+  void config(const char* authToken, const char* deviceId = nullptr,
+              VwireTransport transport = VWIRE_TRANSPORT_TCP_SSL);
 
   /**
    * @brief Set custom device ID (for OEM pre-provisioned devices)
@@ -872,7 +869,7 @@ public:
   
   /**
    * @brief Get library version
-   * @return Version string (e.g., "3.1.0")
+    * @return Version string (e.g., "2.0.0")
    */
   const char* getVersion();
   
@@ -924,6 +921,14 @@ public:
    * @note Only ESP32 and ESP8266 boards support cloud OTA
    */
   void enableCloudOTA();
+
+  /**
+   * @brief Disable Cloud OTA firmware updates at runtime
+   *
+   * This turns off Cloud OTA handling for the current session. To strip the
+   * feature from the binary entirely, use the compile-time disable macro.
+   */
+  void disableCloudOTA();
   
   /**
    * @brief Check if cloud OTA is enabled
@@ -931,106 +936,133 @@ public:
    */
   bool isCloudOTAEnabled();
   #endif
-  
+
   // =========================================================================
-  // GPIO PIN CONTROL
+  // GPIO CONVENIENCE API
   // =========================================================================
 
   /**
-   * @brief Enable automatic GPIO pin management
-   *
-   * When enabled, the device:
-   * - Subscribes to the `pinconfig` MQTT topic on connect
-   * - Automatically configures hardware pin modes from cloud settings
-   * - Periodically reads input pins and publishes changed values
-   * - Handles incoming commands for output pins (D* and A* topics)
-   *
-   * @note Call before begin(). GPIO polling runs inside run().
+   * @brief Enable the built-in GPIO helper using the default addon instance
+   * @return true if GPIO support is ready
    */
-  void enableGPIO();
+  bool enableGPIO();
 
   /**
-   * @brief Check if GPIO management is enabled
-   * @return true if enableGPIO() was called
+   * @brief Attach a specific GPIO addon instance
+   * @param gpio GPIO addon instance to use
+   * @return true if attached, false if another GPIO addon is already active
    */
+  bool useGPIO(VwireGPIO& gpio);
+
+  /** @brief Check whether a GPIO helper is attached */
   bool isGPIOEnabled() const;
 
-  /**
-   * @brief Manually write a value to a GPIO pin
-   * @param pinName Pin name string (e.g., "D13", "A0")
-   * @param value   Value to write (0/1 for digital, 0-255 for PWM)
-   * @note Pin must be configured as OUTPUT or PWM via cloud or addGPIOPin().
-   */
-  void gpioWrite(const char* pinName, int value);
-
-  /**
-   * @brief Read current value of a managed GPIO pin
-   * @param pinName Pin name string (e.g., "D2", "A0")
-   * @return Last read value, or -1 if pin not managed
-   */
-  int gpioRead(const char* pinName);
-
-  /**
-   * @brief Manually add a GPIO pin (without waiting for cloud config)
-   *
-   * The hardware GPIO number is automatically resolved from the pin name
-   * using platform-specific mapping (e.g., D4→GPIO2 on ESP8266/NodeMCU).
-   *
-   * @param pinName      Cloud pin name (e.g., "D5", "A1")
-   * @param mode         Pin mode (VWIRE_GPIO_OUTPUT, etc.)
-   * @param readInterval Read interval for inputs (ms, 0 = default 1000)
-   * @return true if added
-   */
+  /** @brief Add or update a GPIO pin by board label */
   bool addGPIOPin(const char* pinName, VwireGPIOMode mode,
                   uint16_t readInterval = 0);
 
-  /**
-   * @brief Manually add a GPIO pin with explicit hardware GPIO number
-   *
-   * Use this overload only when you need to override the automatic
-   * pin-name-to-GPIO mapping (e.g., custom board wiring).
-   *
-   * @param pinName      Cloud pin name (e.g., "D5", "A1")
-   * @param gpioNumber   Explicit physical GPIO number
-   * @param mode         Pin mode (VWIRE_GPIO_OUTPUT, etc.)
-   * @param readInterval Read interval for inputs (ms, 0 = default 1000)
-   * @return true if added
-   */
-  bool addGPIOPin(const char* pinName, uint8_t gpioNumber, VwireGPIOMode mode,
-                  uint16_t readInterval = 0);
+  /** @brief Add or update a GPIO pin with explicit hardware GPIO number */
+  bool addGPIOPin(const char* pinName, uint8_t gpioNumber,
+                  VwireGPIOMode mode, uint16_t readInterval = 0);
 
-  /**
-   * @brief Send a GPIO pin value to the cloud
-   * @param pinName Pin name (e.g., "D5", "A0")
-   * @param value   Value to publish
-   */
+  /** @brief Remove a managed GPIO pin */
+  bool removeGPIOPin(const char* pinName);
+
+  /** @brief Remove all managed GPIO pins */
+  void clearGPIOPins();
+
+  /** @brief Write a value to a managed GPIO pin */
+  void gpioWrite(const char* pinName, int value);
+
+  /** @brief Read the last known value of a managed GPIO pin */
+  int gpioRead(const char* pinName) const;
+
+  /** @brief Publish a GPIO value to the cloud */
   void gpioSend(const char* pinName, int value);
 
+  /** @brief Get the number of managed GPIO pins */
+  uint8_t getGPIOPinCount() const;
+  
+  // =========================================================================
+  // ADDON SYSTEM
+  // =========================================================================
+
   /**
-   * @brief Get the GPIO manager (advanced use)
-   * @return Reference to the internal VwireGPIOManager
+   * @brief Register a modular addon (GPIO, etc.)
+   *
+   * The addon's onAttach() is called immediately.  Its other lifecycle
+   * hooks are invoked automatically by begin()/run()/disconnect().
+   *
+   * @param addon  Reference to a VwireAddon subclass instance
+   * @code
+   * VwireGPIO gpio;
+   * Vwire.addAddon(gpio);   // or: gpio.begin(Vwire);
+   * @endcode
    */
-  VwireGPIOManager& getGPIO();
+  void addAddon(VwireAddon& addon);
 
   // =========================================================================
-  // DEBUG METHODS
+  // PUBLISH / SUBSCRIBE (for addons & advanced users)
   // =========================================================================
-  
+
   /**
-   * @brief Enable or disable debug output
-   * @param enable true to enable debug messages
+   * @brief Publish a raw MQTT message
+   * @param topic   Full MQTT topic string
+   * @param payload Null-terminated payload
+   * @param retain  Retain flag (default: false)
+   * @return true if published successfully
+   */
+  bool publish(const char* topic, const char* payload, bool retain = false);
+
+  /**
+   * @brief Subscribe to an MQTT topic
+   * @param topic  Full MQTT topic string
+   * @param qos    QoS level (default: 1)
+   * @return true if subscribed successfully
+   */
+  bool subscribe(const char* topic, uint8_t qos = 1);
+
+  // =========================================================================
+  // LOG / DEBUG
+  // =========================================================================
+
+  /**
+   * @brief Set callback for log output (recommended)
+   *
+   * All internal log messages are routed through this callback.
+   * If no callback is set, log messages are discarded (zero overhead).
+   *
+   * @param cb  Function pointer receiving each log line
+   * @code
+   * Vwire.onLog([](const char* msg) { Serial.println(msg); });
+   * @endcode
+   */
+  void onLog(VwireLogCallback cb);
+
+  /**
+   * @brief Route log output to an Arduino Stream
+   * @param stream Destination stream, usually Serial
+    * @note Logging is disabled by default until one of the log APIs is called.
+   */
+  void logTo(Stream& stream);
+
+    /** @brief Disable callback and stream-based logging */
+  void disableLog();
+
+  /**
+   * @brief Enable or disable debug output (legacy)
+   * @param enable true to enable debug messages on debugStream
    */
   void setDebug(bool enable);
   
   /**
-   * @brief Set debug output stream
+   * @brief Set debug output stream (legacy)
    * @param stream Stream to write debug output (default: Serial)
    */
   void setDebugStream(Stream& stream);
   
   /**
    * @brief Print comprehensive debug information
-   * @note Prints version, board, connection status, memory, etc.
    */
   void printDebugInfo();
   
@@ -1045,8 +1077,9 @@ private:
   VwireError _lastError;                ///< Last error code
   char _deviceId[VWIRE_MAX_TOKEN_LENGTH]; ///< Device identifier
   char _hostname[33];                    ///< User-defined hostname (max 32 chars + null)
-  bool _debug;                          ///< Debug output enabled
-  Stream* _debugStream;                 ///< Debug output stream
+  bool _debug;                          ///< Debug output enabled (legacy)
+  Stream* _debugStream;                 ///< Debug output stream (legacy)
+  VwireLogCallback _logCallback;        ///< Log callback (preferred)
   unsigned long _startTime;             ///< Connection start time
   
   // Timing
@@ -1072,39 +1105,13 @@ private:
   ConnectionHandler _connectHandler;     ///< Manual connect handler
   ConnectionHandler _disconnectHandler;  ///< Manual disconnect handler
   RawMessageHandler _messageHandler;     ///< Raw message handler
-  
-  // GPIO
-  bool _gpioEnabled;                     ///< GPIO management enabled
-  VwireGPIOManager _gpio;                ///< GPIO pin manager
-  void _handlePinConfig(const char* payload);
-  void _publishGPIOValue(const char* pinName, int value);
-  static void _gpioPublishCallback(const char* pinName, int value);
 
-  // OTA
-  #if VWIRE_HAS_OTA
-  bool _otaEnabled;                      ///< OTA updates enabled
-  #endif
-  
-  // Cloud OTA
-  #if VWIRE_ENABLE_CLOUD_OTA
-  bool _cloudOtaEnabled;                 ///< Cloud OTA updates enabled
-  void _handleCloudOTA(const char* payload);
-  void _ensureMqttForOTA();              ///< Reconnect MQTT after OTA download if disconnected
-  void _publishOTAStatus(const char* updateId, const char* status, int progress, const char* error = nullptr);
-  #endif
-  
-  // Reliable Delivery
-  struct PendingMessage {
-    char msgId[16];                      ///< Unique message ID
-    uint8_t pin;                         ///< Pin number
-    char value[64];                      ///< Value (truncated if longer)
-    unsigned long sentAt;                ///< Time when last sent
-    uint8_t retries;                     ///< Number of retry attempts
-    bool active;                         ///< Slot in use
-  };
-  PendingMessage _pendingMessages[VWIRE_MAX_PENDING_MESSAGES];  ///< Pending queue
-  DeliveryCallback _deliveryCallback;    ///< Delivery status callback
-  uint32_t _msgIdCounter;                ///< Counter for message IDs
+  // Addon system
+  VwireAddon* _addons[VWIRE_MAX_ADDONS]; ///< Registered addons
+  uint8_t _addonCount;                   ///< Number of registered addons
+  VwireGPIO* _gpioAddon;                 ///< Active GPIO addon, if attached
+  VwireReliableDelivery* _reliableDeliveryAddon; ///< Reliable delivery module
+  VwireOTAFeature* _otaFeature;          ///< OTA feature module
   
   // =========================================================================
   // PRIVATE METHODS
@@ -1121,13 +1128,13 @@ private:
   void _setError(VwireError error);
   void _debugPrint(const char* message);
   void _debugPrintf(const char* format, ...);
-  
-  // Reliable delivery internal methods
-  void _processRetries();
-  void _handleAck(const char* msgId, bool success);
-  int _findPendingSlot();
-  void _removePending(const char* msgId);  // Remove message from queue
-  void _sendWithReliableDelivery(uint8_t pin, const String& value);  // Send with ACK tracking
+  bool _ensureReliableDeliveryAddon();
+  bool _ensureOTAFeature();
+
+  friend class VwireReliableDelivery;
+  friend class VwireOTAFeature;
+  friend class VwireReliableDeliveryAddon;
+  friend class VwireOTAAddon;
 };
 
 // =============================================================================

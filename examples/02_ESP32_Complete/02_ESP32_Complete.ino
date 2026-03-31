@@ -46,13 +46,6 @@ const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
 // =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-// VWIRE_TRANSPORT_TCP_SSL (port 8883) - Encrypted, RECOMMENDED
-// VWIRE_TRANSPORT_TCP     (port 1883) - Plain TCP, use if SSL not supported
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
-// =============================================================================
 // PIN DEFINITIONS
 // =============================================================================
 #define LED_PIN           2
@@ -61,7 +54,6 @@ const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
 #define DHT_PIN           15
 
 // PWM Configuration
-#define PWM_CHANNEL       0
 #define PWM_FREQ          5000
 #define PWM_RESOLUTION    8
 
@@ -161,9 +153,9 @@ void sendSensorData() {
 
 void updateLED() {
   if (ledState) {
-    ledcWrite(PWM_CHANNEL, ledBrightness);
+    ledcWrite(LED_PIN, ledBrightness);
   } else {
-    ledcWrite(PWM_CHANNEL, 0);
+    ledcWrite(LED_PIN, 0);
   }
 }
 
@@ -211,11 +203,11 @@ VWIRE_CONNECTED() {
 VWIRE_DISCONNECTED() {
   Serial.println("✗ Disconnected!");
   // LED indicator for offline
-  ledcWrite(PWM_CHANNEL, 0);
+  ledcWrite(LED_PIN, 0);
   delay(100);
-  ledcWrite(PWM_CHANNEL, 50);
+  ledcWrite(LED_PIN, 50);
   delay(100);
-  ledcWrite(PWM_CHANNEL, 0);
+  ledcWrite(LED_PIN, 0);
 }
 
 // =============================================================================
@@ -238,13 +230,9 @@ void setup() {
   // Load saved settings
   loadSettings();
   
-  // Configure PWM for LED
-  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(LED_PIN, PWM_CHANNEL);
+  // Configure PWM for LED (ESP32 3.x API: pin-based, auto channel)
+  ledcAttach(LED_PIN, PWM_FREQ, PWM_RESOLUTION);
   updateLED();
-  
-  // Configure touch pin
-  touchSetCycles(0x1000, 0x1000);
   
   // Configure ADC
   analogReadResolution(12);
@@ -252,10 +240,11 @@ void setup() {
   
   // Configure Vwire (uses default server: mqtt.vwire.io)
   // No need to register handlers - VWIRE_RECEIVE() macros auto-register!
-  Vwire.setDebug(true);
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);  // Use Device ID for MQTT topics
-  Vwire.setTransport(TRANSPORT);
+  // Optional logging:
+  // Vwire.logTo(Serial);  // Recommended: print library logs to Serial
+  // Vwire.onLog([](const char* msg) { Serial.println(msg); });
+  // Vwire.disableLog();   // Silent mode (default)
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // Enable OTA updates
   Vwire.enableOTA("vwire-esp32");

@@ -1,6 +1,6 @@
 {
   "name": "VwireIOT",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Professional IoT platform library for Arduino, ESP32, ESP8266 and compatible boards. Connect to Vwire IOT cloud via MQTT with TLS encryption support.",
   "keywords": ["iot", "mqtt", "esp32", "esp8266", "dashboard", "cloud", "ssl", "tls", "vwire", "arduino"],
   "authors": [

@@ -30,8 +30,9 @@
  * 4. Upload this sketch to your board
  * 5. Use dashboard to deploy firmware updates
  * 
- * Note: Cloud OTA is automatically enabled on ESP32/ESP8266.
- *       To disable, define VWIRE_DISABLE_CLOUD_OTA before including Vwire.h.
+ * Note: Cloud OTA is AVAILABLE on ESP32/ESP8266, but it is not active until
+ *       you call Vwire.enableCloudOTA().
+ *       To strip it from the binary entirely, disable it as a global build flag.
  * 
  * Copyright (c) 2026 Vwire IOT
  * MIT License
@@ -50,11 +51,6 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 // =============================================================================
 const char* AUTH_TOKEN = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID = "YOUR_DEVICE_ID";  // VW-XXXXXX or VU-XXXXXX
-
-// =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
 
 // =============================================================================
 // PIN DEFINITIONS
@@ -110,12 +106,14 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   
   // Configure Vwire
-  Vwire.setAuthToken(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);
-  Vwire.setTransport(TRANSPORT);
-  Vwire.setDebug(true);
+  // Optional logging:
+  // Vwire.logTo(Serial);  // Recommended: print library logs to Serial
+  // Vwire.onLog([](const char* msg) { Serial.println(msg); });
+  // Vwire.disableLog();   // Silent mode (default)
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
-  // Enable Cloud OTA - device will accept firmware updates from dashboard
+  // Enable Cloud OTA - device will accept firmware updates from dashboard.
+  // Comment this out to keep Cloud OTA disabled at runtime.
   #if VWIRE_ENABLE_CLOUD_OTA
   Vwire.enableCloudOTA();
   Serial.println("Cloud OTA enabled - device will accept firmware updates");

@@ -380,6 +380,22 @@ public:
    */
   void setDebugStream(Stream& stream);
 
+  /**
+   * @brief Route provisioning logs to an Arduino Stream
+   * @param stream Destination stream, usually Serial
+    * @note Logging is disabled by default until one of the log APIs is called.
+   */
+  void logTo(Stream& stream);
+
+  /**
+   * @brief Route provisioning logs to a callback
+   * @param cb Callback receiving each log line
+   */
+  void onLog(VwireLogCallback cb);
+
+  /** @brief Disable provisioning callback and stream-based log output */
+  void disableLog();
+
 private:
   // State
   VwireProvisioningState _state;
@@ -401,6 +417,7 @@ private:
   // Debug
   bool _debug;
   Stream* _debugStream;
+  VwireLogCallback _logCallback;
   
   // AP Mode
   #if VWIRE_HAS_AP_PROVISIONING

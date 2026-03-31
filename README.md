@@ -3,7 +3,7 @@
 Professional IoT platform library for Arduino, ESP32, ESP8266 and compatible boards.  
 Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/vwireiot/vwire-arduino)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/vwireiot/vwire-arduino)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 🌐 **Cloud Portal**: [https://vwire.io](https://vwire.io)
@@ -18,17 +18,21 @@ Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 | `VWIRE_RECEIVE(pin) { }` | Cloud → Device | Handle incoming data |
 | `VWIRE_CONNECTED() { }` | - | Called when connected |
 | `VWIRE_DISCONNECTED() { }` | - | Called when disconnected |
-| `Vwire.config(AUTH_TOKEN)` | - | Configure with default server |
+| `Vwire.config(AUTH_TOKEN, DEVICE_ID)` | - | Configure connection (TLS by default) |
 | `Vwire.begin(SSID, PASS)` | - | Connect to WiFi & cloud |
 | `Vwire.run()` | - | Process messages (call in loop) |
+| `Vwire.enableGPIO()` | - | Enable cloud-managed GPIO support |
+| `Vwire.logTo(Serial)` | - | Print library logs to a stream |
 
 ---
 
 ## 🌟 Features
 
-- 🔐 **Secure Connections**: MQTT over TLS/SSL encryption (port 8883) - **Recommended**
+- 🧩 **Minimal Core + Modules**: Core transport stays lean while GPIO, OTA, reliable delivery, and other optional features stay out of normal sketches until you use them
+- 🔐 **Secure Connections**: MQTT over TLS/SSL encryption (port 8883) - **Default**
 - 📡 **Standard MQTT**: Plain TCP support (port 1883) for boards without SSL
 - 📊 **Virtual Pins**: Bidirectional data exchange with dashboard (256 pins)
+- 🔌 **GPIO Pin Management**: Cloud-controlled digital/analog pins with a simple core API
 - ⏱️ **VwireTimer**: Non-blocking timers for all Arduino boards
 - 🔔 **Notifications**: Push notifications, email alerts, and persistent alarms
 - 🔄 **OTA Updates**: Over-the-air firmware updates (ESP32/ESP8266)
@@ -36,6 +40,66 @@ Connect your microcontrollers to **Vwire IOT** cloud platform via secure MQTT.
 - 🎯 **Multi-Platform**: ESP32, ESP8266, RP2040, SAMD, and more
 - ✅ **Reliable Delivery**: Optional application-level ACK for guaranteed message delivery
 - 📱 **WiFi Provisioning**: AP Mode provisioning — configure device via browser without hardcoding credentials
+
+### Compile-Time Feature Flags
+
+Vwire now uses a minimal core plus optional modules.
+
+For most users, especially in Arduino IDE, the normal workflow is simple: only call the feature APIs you need. If your sketch never enables GPIO, OTA, reliable delivery, or alert helpers, those modules stay out of the final binary, which reduces flash and RAM use for average users without extra build setup.
+
+Advanced users can go one step further and strip support globally from the library build with these flags:
+
+| Flag | Effect |
+|------|--------|
+| `VWIRE_DISABLE_LOGGING` | Compiles out internal logging call sites |
+| `VWIRE_DISABLE_GPIO` | Disables the GPIO module and convenience wrappers |
+| `VWIRE_DISABLE_LOCAL_OTA` | Removes classic Arduino OTA support |
+| `VWIRE_DISABLE_CLOUD_OTA` | Removes Cloud OTA support |
+| `VWIRE_DISABLE_RELIABLE_DELIVERY` | Removes reliable-delivery support |
+| `VWIRE_DISABLE_ALERTS` | Removes notify, alarm, and email helper support |
+
+> These flags must be applied to the library build globally. A sketch-local `#define` inside one `.ino` file is not enough to control separately compiled library source files.
+
+#### Typical Usage
+
+| Goal | Recommended approach |
+|------|----------------------|
+| Smallest sketch for normal Arduino users | Do not call optional feature APIs you do not need |
+| Hard-disable a feature across a whole build | Add a global build flag such as `-DVWIRE_DISABLE_GPIO` |
+| Remove all internal debug logging code | Add `-DVWIRE_DISABLE_LOGGING` |
+
+#### Feature Savings Guide
+
+| Feature | Opt-in API in sketch | If you do not use it | Global strip flag |
+|---------|----------------------|---------------------|-------------------|
+| GPIO | `Vwire.enableGPIO()` | GPIO module stays out of the final binary | `VWIRE_DISABLE_GPIO` |
+| Local OTA | `Vwire.enableOTA()` | Local OTA stays out of the final binary | `VWIRE_DISABLE_LOCAL_OTA` |
+| Cloud OTA | `Vwire.enableCloudOTA()` | Cloud OTA stays off and stays out unless enabled | `VWIRE_DISABLE_CLOUD_OTA` |
+| Reliable Delivery | `Vwire.setReliableDelivery(true)` | Reliable-delivery module stays out of the final binary | `VWIRE_DISABLE_RELIABLE_DELIVERY` |
+| Alerts helpers | `Vwire.notify(...)`, `Vwire.alarm(...)`, `Vwire.email(...)` | Alert helper support stays out if you never use those helpers | `VWIRE_DISABLE_ALERTS` |
+| Logging | `Vwire.logTo(...)` or `Vwire.onLog(...)` | No runtime log output | `VWIRE_DISABLE_LOGGING` |
+
+#### Advanced Build Flag Examples
+
+**arduino-cli**
+
+```bash
+arduino-cli compile \
+  --fqbn esp8266:esp8266:nodemcuv2 \
+  --build-property compiler.cpp.extra_flags="-DVWIRE_DISABLE_GPIO -DVWIRE_DISABLE_CLOUD_OTA" \
+  examples/11_Minimal
+```
+
+**PlatformIO**
+
+```ini
+build_flags =
+  -DVWIRE_DISABLE_GPIO
+  -DVWIRE_DISABLE_CLOUD_OTA
+  -DVWIRE_DISABLE_LOGGING
+```
+
+> Logging is the one special case: if you never call `Vwire.logTo(...)` or `Vwire.onLog(...)`, logging is off at runtime, but `VWIRE_DISABLE_LOGGING` is what fully strips internal logging code from the build.
 
 ---
 
@@ -85,11 +149,6 @@ const char* WIFI_PASS = "YOUR_PASSWORD";
 const char* AUTH_TOKEN = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID  = "YOUR_DEVICE_ID"; // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
-// Transport Configuration (optional - TLS is default)
-// VWIRE_TRANSPORT_TCP_SSL (port 8883) - Encrypted, RECOMMENDED
-// VWIRE_TRANSPORT_TCP     (port 1883) - Plain TCP, for boards without SSL
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
 // ===== HANDLERS (auto-registered!) =====
 
 // Called when cloud sends data to V0 (e.g., button press)
@@ -102,27 +161,19 @@ VWIRE_RECEIVE(V0) {
 // Called when connected to server
 VWIRE_CONNECTED() {
   Serial.println("Connected to Vwire IOT!");
-  Vwire.syncVirtual(V0);  // Request stored value from server
-}
-
-// Called when disconnected
-VWIRE_DISCONNECTED() {
-  Serial.println("Disconnected!");
+  Vwire.syncVirtual(V0);  // Restore stored value after power cycle
 }
 
 // ===== SETUP =====
 void setup() {
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
+  Vwire.logTo(Serial);
   
-  // Configure Vwire (uses default server: mqtt.vwire.io)
-  Vwire.config(AUTH_TOKEN);
-  // Recommended (Option A): use Device ID for topic routing (token remains only credential)
-  Vwire.setDeviceId(DEVICE_ID);
-  Vwire.setTransport(TRANSPORT);
-  Vwire.setDebug(true);
+  // Configure connection — TLS encryption by default
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
-  // Connect - handlers are auto-registered by macros!
+  // Connect to WiFi and Vwire IOT
   if (Vwire.begin(WIFI_SSID, WIFI_PASS)) {
     Serial.println("Connected!");
   }
@@ -130,14 +181,7 @@ void setup() {
 
 // ===== LOOP =====
 void loop() {
-  Vwire.run();  // Must call frequently!
-  
-  // Send data every 5 seconds
-  static unsigned long lastSend = 0;
-  if (Vwire.connected() && millis() - lastSend > 5000) {
-    lastSend = millis();
-    Vwire.virtualSend(V1, millis() / 1000);  // Send uptime to V1
-  }
+  Vwire.run();  // Handles MQTT, reconnection, addons, and heartbeats
 }
 ```
 
@@ -149,23 +193,21 @@ void loop() {
 
 | Transport | Constant | Port | Encryption | Recommendation |
 |-----------|----------|:----:|:----------:|----------------|
-| **MQTTS (TLS)** | `VWIRE_TRANSPORT_TCP_SSL` | 8883 | ✅ Encrypted | ✅ **RECOMMENDED** |
+| **MQTTS (TLS)** | `VWIRE_TRANSPORT_TCP_SSL` | 8883 | ✅ Encrypted | ✅ **Default — recommended** |
 | MQTT (TCP) | `VWIRE_TRANSPORT_TCP` | 1883 | ❌ Plain | For boards without SSL support |
 
-### Vwire IOT Cloud (Default)
+### Default: TLS Encryption
 
 ```cpp
-// Simplest configuration - uses mqtt.vwire.io with TLS
-Vwire.config(AUTH_TOKEN);
-Vwire.setTransport(VWIRE_TRANSPORT_TCP_SSL);
+// TLS is the default — no extra configuration needed
+Vwire.config(AUTH_TOKEN, DEVICE_ID);
 ```
 
-### For Boards Without SSL Support
+### Plain TCP (boards without SSL)
 
 ```cpp
-// Use plain TCP (port 1883) for boards that don't support TLS
-Vwire.config(AUTH_TOKEN);
-Vwire.setTransport(VWIRE_TRANSPORT_TCP);
+// Pass VWIRE_TRANSPORT_TCP as the third parameter
+Vwire.config(AUTH_TOKEN, DEVICE_ID, VWIRE_TRANSPORT_TCP);
 ```
 
 > 🌐 Sign up for free at [https://vwire.io](https://vwire.io) to get your AUTH_TOKEN
@@ -176,43 +218,51 @@ Vwire.setTransport(VWIRE_TRANSPORT_TCP);
 
 ### Configuration Functions
 
-#### `Vwire.config(authToken)`
-Configure with default server (mqtt.vwire.io). **Recommended for most users.**
+#### `Vwire.config(authToken, deviceId, transport)`
+Configure the library in a single call. Only `authToken` is required — all other parameters have sensible defaults.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `authToken` | `const char*` | *required* | Device auth token from the dashboard |
+| `deviceId` | `const char*` | `nullptr` | Device ID (e.g. `"VU-A1B2C3"`). If omitted, falls back to auth token |
+| `transport` | `VwireTransport` | `VWIRE_TRANSPORT_TCP_SSL` | Connection protocol (TLS or plain TCP) |
 
 ```cpp
-Vwire.config("your-auth-token-here");
+// Recommended — TLS by default
+Vwire.config(AUTH_TOKEN, DEVICE_ID);
+
+// Plain TCP for boards without TLS support
+Vwire.config(AUTH_TOKEN, DEVICE_ID, VWIRE_TRANSPORT_TCP);
+
+// Provisioning flow — device ID not yet known, uses token as fallback
+Vwire.config(AUTH_TOKEN);
 ```
 
-#### `Vwire.config(authToken, server, port)`
-Configure with custom MQTT server (for advanced/self-hosted setups).
+#### `Vwire.setDeviceId(deviceId)`
+Override the device ID after `config()`. Useful for OEM provisioning flows where the ID is resolved at runtime.
 
 ```cpp
-Vwire.config("your-token", "custom-server.com", 8883);
-```
-
-#### `Vwire.config(settings)`
-Configure with full settings structure.
-
-```cpp
-VwireSettings settings;
-strncpy(settings.authToken, "your-token", VWIRE_MAX_TOKEN_LENGTH);
-strncpy(settings.server, "mqtt.vwire.io", VWIRE_MAX_SERVER_LENGTH);
-settings.port = 8883;
-settings.transport = VWIRE_TRANSPORT_TCP_SSL;
-settings.autoReconnect = true;
-Vwire.config(settings);
+Vwire.setDeviceId("VW-CUSTOM01");
 ```
 
 #### `Vwire.setTransport(transport)`
-Set transport protocol.
+Override the transport after `config()`. Rarely needed — prefer setting transport in `config()`.
 
 | Value | Description |
 |-------|-------------|
-| `VWIRE_TRANSPORT_TCP_SSL` | MQTT over TLS (port 8883) - **Recommended** |
+| `VWIRE_TRANSPORT_TCP_SSL` | MQTT over TLS (port 8883) — **Default** |
 | `VWIRE_TRANSPORT_TCP` | Plain MQTT (port 1883) |
 
 ```cpp
-Vwire.setTransport(VWIRE_TRANSPORT_TCP_SSL);
+Vwire.setTransport(VWIRE_TRANSPORT_TCP);
+```
+
+#### `Vwire.addAddon(addon)`
+Register an addon with the Vwire core. Called internally by addon `begin()` methods. Up to 4 addons can be attached.
+
+```cpp
+// Typically done via the addon's begin() method:
+gpio.begin(Vwire);  // Internally calls Vwire.addAddon(gpio)
 ```
 
 #### `Vwire.setAutoReconnect(enable)`
@@ -242,6 +292,8 @@ Vwire.setHeartbeatInterval(60000);  // Heartbeat every 60 seconds
 ### Reliable Delivery (Application-Level ACK)
 
 Enable guaranteed message delivery for critical data. When enabled, the server acknowledges each message, and the device automatically retries if no ACK is received.
+
+If your sketch never enables reliable delivery, the reliable-delivery module stays out of the final binary in normal builds.
 
 #### When to Use Reliable Delivery
 
@@ -320,6 +372,7 @@ if (Vwire.isDeliveryPending()) {
 const char* WIFI_SSID = "YOUR_WIFI";
 const char* WIFI_PASS = "YOUR_PASSWORD";
 const char* AUTH_TOKEN = "YOUR_AUTH_TOKEN";
+const char* DEVICE_ID  = "YOUR_DEVICE_ID";
 
 // Track delivery statistics
 unsigned long successCount = 0;
@@ -338,10 +391,9 @@ void onDeliveryResult(const char* msgId, bool success) {
 void setup() {
   Serial.begin(115200);
   
-  // Configure Vwire (uses default server: mqtt.vwire.io)
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setTransport(VWIRE_TRANSPORT_TCP_SSL);
-  Vwire.setDebug(true);
+  // Configure Vwire
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
+  Vwire.onLog([](const char* msg) { Serial.println(msg); });
   
   // Enable reliable delivery
   Vwire.setReliableDelivery(true);
@@ -389,7 +441,7 @@ Serial.printf("Free heap: %u bytes\n", Vwire.getFreeHeap());
 
 ### WiFi Provisioning (AP Mode)
 
-New in v3.1.0! Configure WiFi credentials and device token via a browser — no hardcoding credentials in firmware.
+Configure WiFi credentials and device token via a browser — no hardcoding credentials in firmware.
 
 #### Overview
 
@@ -455,7 +507,7 @@ Serial.printf("Open: http://%s\n", VwireProvision.getAPIP().c_str());
 
 #### OEM Mode (Pre-Provisioned Devices)
 
-**New in v3.1.0!** OEM mode is designed for manufacturers who pre-provision devices before shipping to customers.
+OEM mode is designed for manufacturers who pre-provision devices before shipping to customers.
 
 **Two Provisioning Workflows:**
 
@@ -494,6 +546,7 @@ void setup() {
   
   if (VwireProvision.hasCredentials()) {
     // Use stored WiFi credentials + hardcoded token
+    Vwire.config(VwireProvision.getAuthToken());
     Vwire.begin(VwireProvision.getSSID(), VwireProvision.getPassword());
   } else {
     // Start AP Mode in OEM mode (WiFi only, no token field)
@@ -531,7 +584,7 @@ void loop() {
 }
 ```
 
-**See also:** [Example 16_OEM_PreProvisioned](examples/16_OEM_PreProvisioned)
+**See also:** [Example 14_OEM_PreProvisioned](examples/14_OEM_PreProvisioned)
 
 #### Provisioning States
 
@@ -590,9 +643,9 @@ VwireProvision.onProgress([](int percent, const char* msg) {
 });
 ```
 
-#### Complete Auto-Provisioning Example
+#### Complete Provisioning Example
 
-See [15_Auto_Provisioning](examples/15_Auto_Provisioning) for a production-ready implementation.
+See [13_AP_Mode_Provisioning](examples/13_AP_Mode_Provisioning) for the recommended end-user provisioning flow.
 
 ---
 
@@ -769,6 +822,7 @@ VWIRE_DISCONNECTED() {
 const char* WIFI_SSID = "YOUR_WIFI";
 const char* WIFI_PASS = "YOUR_PASSWORD";
 const char* AUTH_TOKEN = "YOUR_AUTH_TOKEN";
+const char* DEVICE_ID  = "YOUR_DEVICE_ID";
 
 #define LED_PIN 2
 #define SENSOR_PIN 34
@@ -797,9 +851,8 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
   
-  // Simple configuration - uses default cloud server
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setTransport(VWIRE_TRANSPORT_TCP_SSL);
+  // Configure connection — TLS by default
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // No need to register handlers - macros do it automatically!
   Vwire.begin(WIFI_SSID, WIFI_PASS);
@@ -956,7 +1009,7 @@ void setup() {
   // Blink LED every 500ms
   timer.setInterval(500, blinkLED);
   
-  Vwire.config(AUTH_TOKEN);
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   Vwire.begin(WIFI_SSID, WIFI_PASS);
 }
 
@@ -1078,8 +1131,8 @@ Vwire.log("System initialized successfully");
 #### `Vwire.getDeviceId()`
 Get the current device identifier used in MQTT topics.
 
-- If you call `Vwire.setDeviceId(DEVICE_ID)`, this returns that Device ID (recommended).
-- Otherwise it falls back to using the auth token as the topic identifier (legacy mode).
+- Returns the device ID set in `config(authToken, deviceId)`.
+- If no device ID was provided, falls back to using the auth token.
 
 ```cpp
 Serial.printf("Device ID: %s\n", Vwire.getDeviceId());
@@ -1098,7 +1151,7 @@ Get library version.
 
 ```cpp
 Serial.printf("Library Version: %s\n", Vwire.getVersion());
-// Output: "3.0.0"
+// Output: "2.0.0"
 ```
 
 #### `Vwire.getFreeHeap()`
@@ -1168,12 +1221,14 @@ if (!Vwire.begin(WIFI_SSID, WIFI_PASS)) {
 
 ### OTA Updates (ESP32/ESP8266 only)
 
+If your sketch never calls `Vwire.enableOTA()` or `Vwire.enableCloudOTA()`, OTA support stays out of the final binary in normal builds.
+
 #### `Vwire.enableOTA(hostname, password)`
 Enable Over-The-Air firmware updates.
 
 ```cpp
 void setup() {
-  Vwire.config(AUTH_TOKEN);
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   Vwire.begin(WIFI_SSID, WIFI_PASS);
   
   // Enable OTA with custom hostname and password
@@ -1186,23 +1241,170 @@ void setup() {
 
 > **Note**: OTA is handled automatically in `Vwire.run()`. No additional code needed in `loop()`.
 
----
+#### Cloud OTA
 
-### Debug Functions
-
-#### `Vwire.setDebug(enable)`
-Enable/disable debug output to Serial.
+Cloud OTA is available only on boards with OTA support, but it is **off by default at runtime**. A sketch enables it explicitly with `Vwire.enableCloudOTA()`.
 
 ```cpp
-Vwire.setDebug(true);   // Enable debug messages
-Vwire.setDebug(false);  // Disable debug messages
+void setup() {
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
+
+  // Enable Cloud OTA from the Vwire dashboard
+  Vwire.enableCloudOTA();
+
+  Vwire.begin(WIFI_SSID, WIFI_PASS);
+}
 ```
 
-#### `Vwire.setDebugStream(stream)`
-Set custom output stream for debug messages.
+To keep Cloud OTA disabled at runtime, simply do not call `Vwire.enableCloudOTA()`.
+
+If you need to turn it off again after enabling it:
 
 ```cpp
-Vwire.setDebugStream(Serial2);  // Use Serial2 for debug
+Vwire.disableCloudOTA();
+```
+
+If you want to strip Cloud OTA support from the binary entirely, disable it at compile time with a **global build flag**:
+
+```cpp
+VWIRE_DISABLE_CLOUD_OTA
+```
+
+That compile-time disable must be applied to the whole library build, not only inside a single sketch file.
+
+---
+
+### GPIO Pin Management (Addon)
+
+GPIO pin management is available through the main `Vwire` object. Call `Vwire.enableGPIO()` when you want cloud-controlled physical pins. If your sketch never calls the GPIO helpers, the GPIO module stays out of the final binary.
+
+For advanced builds, you can also hard-disable GPIO support everywhere with `VWIRE_DISABLE_GPIO`.
+
+Pins are configured through the dashboard (Device Settings → GPIO Configuration) and automatically synced to the device on connect. The device reads inputs on a configurable interval and reports changes.
+
+#### Setup
+
+```cpp
+#include <Vwire.h>
+
+void setup() {
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
+  Vwire.enableGPIO();
+  Vwire.begin(WIFI_SSID, WIFI_PASS);
+}
+
+void loop() {
+  Vwire.run();
+}
+```
+
+#### Smart Write
+
+OUTPUT pins automatically adapt based on the value sent:
+
+| Value Sent | Behavior |
+|:----------:|----------|
+| `0` or `1` | `digitalWrite` — clean digital on/off |
+| `2` – `255` | `analogWrite` / PWM — proportional duty cycle |
+
+A **Switch** widget (sends 0/1) toggles the pin on/off. A **Slider** widget (sends 0–255) controls brightness/speed via PWM. No separate pin mode needed.
+
+#### `Vwire.addGPIOPin(pinName, mode, readInterval)`
+Pre-register a GPIO pin locally (useful for development or offline use). Cloud config overrides these when connected.
+
+| Mode | Description |
+|------|-------------|
+| `VWIRE_GPIO_OUTPUT` | Digital/PWM output |
+| `VWIRE_GPIO_INPUT` | Digital input (floating) |
+| `VWIRE_GPIO_INPUT_PULLUP` | Digital input with pull-up |
+
+```cpp
+// Relay on D2
+Vwire.addGPIOPin("D2", VWIRE_GPIO_OUTPUT);
+
+// Button on D4, read every 200ms
+Vwire.addGPIOPin("D4", VWIRE_GPIO_INPUT_PULLUP, 200);
+```
+
+#### `Vwire.gpioWrite(pinName, value)`
+Directly write to a GPIO pin from your sketch.
+
+```cpp
+Vwire.gpioWrite("D5", HIGH);   // Digital on
+Vwire.gpioWrite("D5", 128);    // PWM — ~50% duty cycle
+```
+
+#### `Vwire.gpioRead(pinName)`
+Read the last polled value of a GPIO input pin.
+
+```cpp
+int btn = Vwire.gpioRead("D4");
+```
+
+#### `Vwire.gpioSend(pinName, value)`
+Write a value and publish it to the cloud.
+
+```cpp
+Vwire.gpioSend("D2", 1);  // Turn on and report to dashboard
+```
+
+#### Other Methods
+
+| Method | Description |
+|--------|-------------|
+| `Vwire.removeGPIOPin(name)` | Remove a managed pin |
+| `Vwire.clearGPIOPins()` | Remove all managed pins |
+| `Vwire.getGPIOPinCount()` | Get number of managed pins |
+
+#### Advanced Addon Usage
+
+If you need explicit addon ownership or want to compose multiple addons manually, include `VwireGPIO.h` and use `VwireGPIO` directly. The simple `Vwire.enableGPIO()` path above is the recommended default for sketches.
+
+> **Pin name mapping:** Pin names match board labels — `D4` on ESP8266/NodeMCU maps to GPIO 2 (built-in LED) automatically. No GPIO number lookup needed.
+
+---
+
+### Debug / Logging
+
+Logging is disabled by default for both `Vwire` and `VwireProvision` until you explicitly enable it.
+
+If you never call the logging APIs, you get no runtime log output. If you want to remove internal logging code entirely, build with `VWIRE_DISABLE_LOGGING`.
+
+#### `Vwire.logTo(stream)`
+Route library logs to an Arduino stream. This is the recommended way to enable debug output in sketches.
+
+```cpp
+Vwire.logTo(Serial);
+Vwire.logTo(Serial2);
+```
+
+#### `Vwire.onLog(callback)`
+Set a custom log callback when you need to forward messages into your own logging pipeline.
+
+```cpp
+Vwire.onLog([](const char* msg) {
+  Serial.println(msg);
+});
+```
+
+#### `Vwire.disableLog()`
+Turn logging back off.
+
+```cpp
+Vwire.disableLog();
+```
+
+#### `VwireProvision.logTo(stream)` / `VwireProvision.onLog(callback)`
+Provisioning now follows the same logging model as the main client.
+
+```cpp
+VwireProvision.logTo(Serial);
+
+VwireProvision.onLog([](const char* msg) {
+  Serial.println(msg);
+});
+
+VwireProvision.disableLog();
 ```
 
 #### `Vwire.printDebugInfo()`
@@ -1213,7 +1415,7 @@ Vwire.printDebugInfo();
 
 /* Output:
 === Vwire IOT Debug Info ===
-Version: 3.0.0
+Version: 2.0.0
 Board: ESP32
 Device ID: abc12345-6789-0abc-def0-123456789abc
 Server: mqtt.vwire.io:8883
@@ -1233,7 +1435,7 @@ Handlers: 3
 
 | Example | Description |
 |---------|-------------|
-| [01_Basic](examples/01_Basic) | Simple sensor and LED control |
+| [01_Basic](examples/01_Basic) | Simple LED control with virtual pins |
 | [02_ESP32_Complete](examples/02_ESP32_Complete) | ESP32 with OTA, touch, preferences |
 | [03_ESP8266_Complete](examples/03_ESP8266_Complete) | ESP8266 with LittleFS storage |
 | [04_DHT_SensorStation](examples/04_DHT_SensorStation) | Temperature monitoring with alerts |
@@ -1241,11 +1443,13 @@ Handlers: 3
 | [06_Timer](examples/06_Timer) | **VwireTimer** - Non-blocking timers |
 | [07_RGB_LED_Strip](examples/07_RGB_LED_Strip) | NeoPixel/WS2812B with effects |
 | [08_Motor_Servo](examples/08_Motor_Servo) | DC motor and servo control |
-| [10_Minimal](examples/10_Minimal) | Simplest possible example |
-| [11_MQTTS_Secure](examples/11_MQTTS_Secure) | Secure TLS connection example |
+| [10_Cloud_OTA](examples/10_Cloud_OTA) | Cloud-based OTA firmware updates |
+| [11_Minimal](examples/11_Minimal) | Simplest possible example |
 | [12_ReliableDelivery](examples/12_ReliableDelivery) | Guaranteed delivery with ACK |
-| [14_AP_Mode_Provisioning](examples/14_AP_Mode_Provisioning) | 📡 WiFi provisioning via Access Point |
-| [15_Auto_Provisioning](examples/15_Auto_Provisioning) | ✨ **Recommended** - Auto provisioning (stored creds or AP Mode) |
+| [13_AP_Mode_Provisioning](examples/13_AP_Mode_Provisioning) | ✨ **Recommended** — end-user WiFi provisioning via AP portal |
+| [14_OEM_PreProvisioned](examples/14_OEM_PreProvisioned) | 🏭 Manufacturer pre-provisioned devices |
+| [15_Digital_Pins](examples/15_Digital_Pins) | 🔌 Cloud-controlled digital GPIO pins (addon) |
+| [16_Analog_Pins](examples/16_Analog_Pins) | 📊 Cloud-monitored analog inputs (addon) |
 
 ---
 
@@ -1272,7 +1476,7 @@ Handlers: 3
 ```cpp
 void setup() {
   Serial.begin(115200);
-  Vwire.setDebug(true);  // Show detailed logs
+  Vwire.onLog([](const char* msg) { Serial.println(msg); });
   // ...
 }
 ```

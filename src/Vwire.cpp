@@ -11,6 +11,14 @@
 #include "Vwire.h"
 #include <stdarg.h>
 
+#if VWIRE_ENABLE_LOGGING
+  #define VWIRE_LOG(message) _debugPrint(message)
+  #define VWIRE_LOGF(...) _debugPrintf(__VA_ARGS__)
+#else
+  #define VWIRE_LOG(message) do { } while (0)
+  #define VWIRE_LOGF(...) do { } while (0)
+#endif
+
 // =============================================================================
 // GLOBAL INSTANCE
 // =============================================================================
@@ -49,6 +57,7 @@ VwireClass::VwireClass()
   , _lastError(VWIRE_ERR_NONE)
   , _debug(false)
   , _debugStream(&Serial)
+  , _logCallback(nullptr)
   , _startTime(0)
   , _lastHeartbeat(0)
   , _lastReconnectAttempt(0)
@@ -57,20 +66,15 @@ VwireClass::VwireClass()
   , _connectHandler(nullptr)
   , _disconnectHandler(nullptr)
   , _messageHandler(nullptr)
-  , _deliveryCallback(nullptr)
-  , _msgIdCounter(0)
-  , _gpioEnabled(false)
-  #if VWIRE_HAS_OTA
-  , _otaEnabled(false)
-  #endif
-  #if VWIRE_ENABLE_CLOUD_OTA
-  , _cloudOtaEnabled(false)
-  #endif
+  , _addonCount(0)
+  , _gpioAddon(nullptr)
+  , _reliableDeliveryAddon(nullptr)
+  , _otaFeature(nullptr)
 {
   memset(_deviceId, 0, sizeof(_deviceId));
   memset(_hostname, 0, sizeof(_hostname));
   memset(_pinHandlers, 0, sizeof(_pinHandlers));
-  memset(_pendingMessages, 0, sizeof(_pendingMessages));
+  memset(_addons, 0, sizeof(_addons));
   _vwireInstance = this;
 }
 
@@ -81,44 +85,35 @@ VwireClass::~VwireClass() {
 // =============================================================================
 // CONFIGURATION
 // =============================================================================
-void VwireClass::config(const char* authToken) {
-  config(authToken, VWIRE_DEFAULT_SERVER, VWIRE_DEFAULT_PORT_TLS);
-}
-
-void VwireClass::config(const char* authToken, const char* server, uint16_t port) {
+void VwireClass::config(const char* authToken, const char* deviceId,
+                        VwireTransport transport) {
+  // Store auth token
   strncpy(_settings.authToken, authToken, VWIRE_MAX_TOKEN_LENGTH - 1);
-  strncpy(_settings.server, server, VWIRE_MAX_SERVER_LENGTH - 1);
-  _settings.port = port;
-  
-  // Auto-detect transport based on port
-  if (port == 8883 || port == 443) {
-    _settings.transport = VWIRE_TRANSPORT_TCP_SSL;
-  } else {
-    _settings.transport = VWIRE_TRANSPORT_TCP;
-  }
-  
-  // Use FULL auth token as device ID for topic authorization
-  strncpy(_deviceId, authToken, VWIRE_MAX_TOKEN_LENGTH - 1);
-  _deviceId[VWIRE_MAX_TOKEN_LENGTH - 1] = '\0';
-  
-  _debugPrintf("[Vwire] Config: server=%s, port=%d, transport=%s", 
-               _settings.server, _settings.port,
-               _settings.transport == VWIRE_TRANSPORT_TCP_SSL ? "TLS" : "TCP");
-}
+  _settings.authToken[VWIRE_MAX_TOKEN_LENGTH - 1] = '\0';
 
-void VwireClass::config(const VwireSettings& settings) {
-  _settings = settings;
-  
-  // Use FULL auth token as device ID for topic authorization
-  strncpy(_deviceId, settings.authToken, VWIRE_MAX_TOKEN_LENGTH - 1);
+  // Default server
+  strncpy(_settings.server, VWIRE_DEFAULT_SERVER, VWIRE_MAX_SERVER_LENGTH - 1);
+  _settings.server[VWIRE_MAX_SERVER_LENGTH - 1] = '\0';
+
+  // Transport and port
+  _settings.transport = transport;
+  _settings.port = (transport == VWIRE_TRANSPORT_TCP) ? VWIRE_DEFAULT_PORT_TCP : VWIRE_DEFAULT_PORT_TLS;
+
+  // Device ID: use provided value, or fall back to auth token
+  const char* id = (deviceId && strlen(deviceId) > 0) ? deviceId : authToken;
+  strncpy(_deviceId, id, VWIRE_MAX_TOKEN_LENGTH - 1);
   _deviceId[VWIRE_MAX_TOKEN_LENGTH - 1] = '\0';
+
+  VWIRE_LOGF("[Vwire] Config: device=%s, transport=%s",
+               _deviceId,
+               transport == VWIRE_TRANSPORT_TCP_SSL ? "TLS" : "TCP");
 }
 
 void VwireClass::setDeviceId(const char* deviceId) {
   if (deviceId && strlen(deviceId) > 0) {
     strncpy(_deviceId, deviceId, VWIRE_MAX_TOKEN_LENGTH - 1);
     _deviceId[VWIRE_MAX_TOKEN_LENGTH - 1] = '\0';
-    _debugPrintf("[Vwire] Custom device ID set: %s", _deviceId);
+    VWIRE_LOGF("[Vwire] Custom device ID set: %s", _deviceId);
   }
 }
 
@@ -126,13 +121,13 @@ void VwireClass::setHostname(const char* hostname) {
   if (hostname && strlen(hostname) > 0) {
     strncpy(_hostname, hostname, sizeof(_hostname) - 1);
     _hostname[sizeof(_hostname) - 1] = '\0';
-    _debugPrintf("[Vwire] Hostname set: %s", _hostname);
+    VWIRE_LOGF("[Vwire] Hostname set: %s", _hostname);
   }
 }
 
 void VwireClass::setTransport(VwireTransport transport) {
   _settings.transport = transport;
-  _debugPrintf("[Vwire] Transport set to: %s", 
+  VWIRE_LOGF("[Vwire] Transport set to: %s", 
                transport == VWIRE_TRANSPORT_TCP_SSL ? "TLS" : "TCP");
 }
 
@@ -158,23 +153,6 @@ void VwireClass::setDataRetain(bool retain) {
   _settings.dataRetain = retain;
 }
 
-void VwireClass::setReliableDelivery(bool enable) {
-  _settings.reliableDelivery = enable;
-  _debugPrintf("[Vwire] Reliable delivery: %s", enable ? "ENABLED" : "DISABLED");
-}
-
-void VwireClass::setAckTimeout(unsigned long timeout) {
-  _settings.ackTimeout = timeout;
-}
-
-void VwireClass::setMaxRetries(uint8_t retries) {
-  _settings.maxRetries = retries;
-}
-
-void VwireClass::onDeliveryStatus(DeliveryCallback cb) {
-  _deliveryCallback = cb;
-}
-
 // =============================================================================
 // CONNECTION
 // =============================================================================
@@ -194,12 +172,12 @@ void VwireClass::_setupClient() {
     #endif
     
     _mqttClient.setClient(_secureClient);
-    _debugPrint("[Vwire] Using TLS/SSL client");
+    VWIRE_LOG("[Vwire] Using TLS/SSL client");
   } else
   #endif
   {
     _mqttClient.setClient(_wifiClient);
-    _debugPrint("[Vwire] Using plain TCP client");
+    VWIRE_LOG("[Vwire] Using plain TCP client");
   }
   
   _mqttClient.setServer(_settings.server, _settings.port);
@@ -211,7 +189,7 @@ void VwireClass::_setupClient() {
 
 bool VwireClass::_connectWiFi(const char* ssid, const char* password) {
   _state = VWIRE_STATE_CONNECTING_WIFI;
-  _debugPrintf("[Vwire] Connecting to WiFi: %s", ssid);
+  VWIRE_LOGF("[Vwire] Connecting to WiFi: %s", ssid);
   
   WiFi.mode(WIFI_STA);
   
@@ -231,7 +209,7 @@ bool VwireClass::_connectWiFi(const char* ssid, const char* password) {
   #elif defined(VWIRE_BOARD_ESP8266)
   WiFi.hostname(wifiHostname.c_str());
   #endif
-  _debugPrintf("[Vwire] WiFi hostname: %s", wifiHostname.c_str());
+  VWIRE_LOGF("[Vwire] WiFi hostname: %s", wifiHostname.c_str());
   
   WiFi.begin(ssid, password);
   
@@ -240,29 +218,29 @@ bool VwireClass::_connectWiFi(const char* ssid, const char* password) {
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     yield();
-    _debugPrint(".");
+    VWIRE_LOG(".");
     
     if (millis() - startAttempt >= _settings.wifiTimeout) {
-      _debugPrint("\n[Vwire] WiFi connection timeout!");
+      VWIRE_LOG("\n[Vwire] WiFi connection timeout!");
       _setError(VWIRE_ERR_WIFI_FAILED);
       _state = VWIRE_STATE_ERROR;
       return false;
     }
   }
   
-  _debugPrintf("\n[Vwire] WiFi connected! IP: %s", WiFi.localIP().toString().c_str());
+  VWIRE_LOGF("\n[Vwire] WiFi connected! IP: %s", WiFi.localIP().toString().c_str());
   return true;
 }
 
 bool VwireClass::_connectMQTT() {
   if (strlen(_settings.authToken) == 0) {
     _setError(VWIRE_ERR_NO_TOKEN);
-    _debugPrint("[Vwire] Error: No auth token configured!");
+    VWIRE_LOG("[Vwire] Error: No auth token configured!");
     return false;
   }
   
   _state = VWIRE_STATE_CONNECTING_MQTT;
-  _debugPrintf("[Vwire] Connecting to MQTT: %s:%d", _settings.server, _settings.port);
+  VWIRE_LOGF("[Vwire] Connecting to MQTT: %s:%d", _settings.server, _settings.port);
   
   // Generate client ID from device ID
   String clientId = "vwire-";
@@ -272,7 +250,7 @@ bool VwireClass::_connectMQTT() {
   String willTopic = _buildTopic("status");
   const char* willMessage = "{\"status\":\"offline\"}";
   
-  _debugPrintf("[Vwire] MQTT connecting as: %s", clientId.c_str());
+  VWIRE_LOGF("[Vwire] MQTT connecting as: %s", clientId.c_str());
   
   // Connect with token as both username and password (server validates password)
   bool connected = _mqttClient.connect(clientId.c_str(), _settings.authToken, _settings.authToken, 
@@ -280,7 +258,7 @@ bool VwireClass::_connectMQTT() {
   
   if (connected) {
     _state = VWIRE_STATE_CONNECTED;
-    _debugPrint("[Vwire] MQTT connected!");
+    VWIRE_LOG("[Vwire] MQTT connected!");
     
     // Publish online status (retained so server knows device is online)
     _mqttClient.beginPublish(willTopic.c_str(), 19, true);  // retained=true
@@ -290,29 +268,11 @@ bool VwireClass::_connectMQTT() {
     // Subscribe to command topics with QoS 1 for reliable command delivery
     String cmdTopic = _buildTopic("cmd") + "/#";
     _mqttClient.subscribe(cmdTopic.c_str(), 1);  // QoS 1 - commands are delivered at least once
-    _debugPrintf("[Vwire] Subscribed to: %s (QoS 1)", cmdTopic.c_str());
+    VWIRE_LOGF("[Vwire] Subscribed to: %s (QoS 1)", cmdTopic.c_str());
     
-    // Subscribe to ACK topic for reliable delivery (if enabled)
-    if (_settings.reliableDelivery) {
-      String ackTopic = _buildTopic("ack");
-      _mqttClient.subscribe(ackTopic.c_str(), 1);
-      _debugPrintf("[Vwire] Subscribed to: %s (ACK)", ackTopic.c_str());
-    }
-    
-    // Subscribe to Cloud OTA topic (if enabled)
-    #if VWIRE_ENABLE_CLOUD_OTA
-    if (_cloudOtaEnabled) {
-      String otaTopic = _buildTopic("ota");
-      _mqttClient.subscribe(otaTopic.c_str(), 1);
-      _debugPrintf("[Vwire] Subscribed to: %s (Cloud OTA)", otaTopic.c_str());
-    }
-    #endif
-    
-    // Subscribe to GPIO pinconfig topic (if GPIO enabled)
-    if (_gpioEnabled) {
-      String pinconfigTopic = _buildTopic("pinconfig");
-      _mqttClient.subscribe(pinconfigTopic.c_str(), 1);
-      _debugPrintf("[Vwire] Subscribed to: %s (GPIO config)", pinconfigTopic.c_str());
+    // Notify addons of connect (they subscribe to their own topics here)
+    for (uint8_t i = 0; i < _addonCount; i++) {
+      if (_addons[i]) _addons[i]->onConnect();
     }
     
     _startTime = millis();
@@ -324,7 +284,7 @@ bool VwireClass::_connectMQTT() {
     return true;
   } else {
     int mqttState = _mqttClient.state();
-    _debugPrintf("[Vwire] MQTT failed, state=%d", mqttState);
+    VWIRE_LOGF("[Vwire] MQTT failed, state=%d", mqttState);
     _setError(VWIRE_ERR_MQTT_FAILED);
     _state = VWIRE_STATE_ERROR;
     return false;
@@ -332,10 +292,10 @@ bool VwireClass::_connectMQTT() {
 }
 
 bool VwireClass::begin(const char* ssid, const char* password) {
-  _debugPrint("\n[Vwire] ========================================");
-  _debugPrintf("[Vwire] Vwire IOT Library v%s", VWIRE_VERSION);
-  _debugPrintf("[Vwire] Board: %s", VWIRE_BOARD_NAME);
-  _debugPrint("[Vwire] ========================================\n");
+  VWIRE_LOG("\n[Vwire] ========================================");
+  VWIRE_LOGF("[Vwire] Vwire IOT Library v%s", VWIRE_VERSION);
+  VWIRE_LOGF("[Vwire] Board: %s", VWIRE_BOARD_NAME);
+  VWIRE_LOG("[Vwire] ========================================\n");
   
   // Setup network client first
   _setupClient();
@@ -352,7 +312,7 @@ bool VwireClass::begin(const char* ssid, const char* password) {
 bool VwireClass::begin() {
   // Assume WiFi is already connected
   if (WiFi.status() != WL_CONNECTED) {
-    _debugPrint("[Vwire] Error: WiFi not connected!");
+    VWIRE_LOG("[Vwire] Error: WiFi not connected!");
     _setError(VWIRE_ERR_WIFI_FAILED);
     return false;
   }
@@ -362,21 +322,9 @@ bool VwireClass::begin() {
 }
 
 void VwireClass::run() {
-  // Handle local OTA FIRST - must run every loop iteration regardless of MQTT state
-  #if VWIRE_HAS_OTA
-  if (_otaEnabled) {
-    ArduinoOTA.handle();
-  }
-  #endif
-  
   // Process MQTT messages - critical for low latency command reception
   if (_mqttClient.connected()) {
     _mqttClient.loop();
-    
-    // Process reliable delivery retries (if enabled)
-    if (_settings.reliableDelivery) {
-      _processRetries();
-    }
     
     // Send heartbeat (only when connected)
     unsigned long now = millis();
@@ -385,9 +333,9 @@ void VwireClass::run() {
       _sendHeartbeat();
     }
     
-    // Poll GPIO input pins (if enabled)
-    if (_gpioEnabled) {
-      _gpio.poll(_gpioPublishCallback);
+    // Run addons (GPIO polling, etc.)
+    for (uint8_t i = 0; i < _addonCount; i++) {
+      if (_addons[i]) _addons[i]->onRun();
     }
     
     return;  // Fast path - everything is good
@@ -402,7 +350,10 @@ void VwireClass::run() {
   if (WiFi.status() != WL_CONNECTED) {
     if (_state == VWIRE_STATE_CONNECTED) {
       _state = VWIRE_STATE_DISCONNECTED;
-      _debugPrint("[Vwire] WiFi disconnected!");
+      VWIRE_LOG("[Vwire] WiFi disconnected!");
+      for (uint8_t i = 0; i < _addonCount; i++) {
+        if (_addons[i]) _addons[i]->onDisconnect();
+      }
       if (_disconnectHandler) _disconnectHandler();
       if (_vwireAutoDisconnectHandler) _vwireAutoDisconnectHandler();
     }
@@ -412,7 +363,10 @@ void VwireClass::run() {
   // MQTT disconnected but WiFi is up
   if (_state == VWIRE_STATE_CONNECTED) {
     _state = VWIRE_STATE_DISCONNECTED;
-    _debugPrint("[Vwire] MQTT disconnected!");
+    VWIRE_LOG("[Vwire] MQTT disconnected!");
+    for (uint8_t i = 0; i < _addonCount; i++) {
+      if (_addons[i]) _addons[i]->onDisconnect();
+    }
     if (_disconnectHandler) _disconnectHandler();
     if (_vwireAutoDisconnectHandler) _vwireAutoDisconnectHandler();
   }
@@ -464,55 +418,20 @@ void VwireClass::_handleMessage(char* topic, byte* payload, unsigned int length)
   memcpy(payloadStr, payload, copyLen);
   payloadStr[copyLen] = '\0';
   
-  _debugPrintf("[Vwire] Received: %s = %s", topic, payloadStr);
+  VWIRE_LOGF("[Vwire] Received: %s = %s", topic, payloadStr);
   
   // Call raw message handler if set
   if (_messageHandler) {
     _messageHandler(topic, payloadStr);
   }
   
-  // Check for Cloud OTA topic: vwire/{deviceId}/ota
-  #if VWIRE_ENABLE_CLOUD_OTA
-  if (_cloudOtaEnabled) {
-    char* otaPos = strstr(topic, "/ota");
-    if (otaPos && *(otaPos + 4) == '\0') {
-      _handleCloudOTA(payloadStr);
+  // Let addons handle the message first (GPIO pinconfig, OTA, ACK, etc.).
+  // The first addon that returns true claims ownership; remaining addons and
+  // the built-in virtual-pin dispatch are skipped for this message.
+  for (uint8_t i = 0; i < _addonCount; i++) {
+    if (_addons[i] && _addons[i]->onMessage(topic, payloadStr)) {
       return;
     }
-  }
-  #endif
-  
-  // Check for GPIO pinconfig topic: vwire/{deviceId}/pinconfig
-  if (_gpioEnabled) {
-    char* pinconfigPos = strstr(topic, "/pinconfig");
-    if (pinconfigPos && *(pinconfigPos + 10) == '\0') {
-      _handlePinConfig(payloadStr);
-      return;
-    }
-  }
-  
-  // Check for ACK topic first: vwire/{deviceId}/ack
-  char* ackPos = strstr(topic, "/ack");
-  if (ackPos && *(ackPos + 4) == '\0') {
-    // This is an ACK message - parse JSON: {"msgId":"xxx","ok":true/false}
-    // Simple parse without ArduinoJson to save memory
-    char* msgIdStart = strstr(payloadStr, "\"msgId\":\"");
-    char* okStart = strstr(payloadStr, "\"ok\":");
-    
-    if (msgIdStart && okStart) {
-      msgIdStart += 9;  // Skip to value
-      char* msgIdEnd = strchr(msgIdStart, '\"');
-      if (msgIdEnd) {
-        char msgId[16];
-        int len = min((int)(msgIdEnd - msgIdStart), 15);
-        strncpy(msgId, msgIdStart, len);
-        msgId[len] = '\0';
-        
-        bool success = (strstr(okStart, "true") != nullptr);
-        _handleAck(msgId, success);
-      }
-    }
-    return;  // ACK processed, don't continue as command
   }
   
   // Fast parse: find "/cmd/" in topic using strstr (no heap allocation)
@@ -522,21 +441,6 @@ void VwireClass::_handleMessage(char* topic, byte* payload, unsigned int length)
   // Get pin string after "/cmd/"
   char* pinStr = cmdPos + 5;  // Skip "/cmd/"
   if (!pinStr || *pinStr == '\0') return;
-  
-  // Check if this is a D (digital) or A (analog) pin command → route to GPIO manager
-  if (_gpioEnabled && (*pinStr == 'D' || *pinStr == 'd' || *pinStr == 'A' || *pinStr == 'a')) {
-    // Build pin name (uppercase)
-    char gpioName[6];
-    strncpy(gpioName, pinStr, sizeof(gpioName) - 1);
-    gpioName[sizeof(gpioName) - 1] = '\0';
-    for (char* c = gpioName; *c; c++) *c = toupper(*c);
-    
-    int value = atoi(payloadStr);
-    if (_gpio.handleCommand(gpioName, value)) {
-      _debugPrintf("[Vwire] GPIO cmd: %s = %d", gpioName, value);
-    }
-    return;
-  }
   
   // Parse pin number (handle V prefix — virtual pins)
   int pin = -1;
@@ -581,10 +485,8 @@ void VwireClass::_virtualSendInternal(uint8_t pin, const String& value) {
     _setError(VWIRE_ERR_NOT_CONNECTED);
     return;
   }
-  
-  // Use reliable delivery if enabled
-  if (_settings.reliableDelivery) {
-    _sendWithReliableDelivery(pin, value);
+
+  if (_reliableDeliveryAddon && _reliableDeliveryAddon->send(pin, value)) {
     return;
   }
   
@@ -599,7 +501,7 @@ void VwireClass::_virtualSendInternal(uint8_t pin, const String& value) {
   _mqttClient.beginPublish(topic, len, _settings.dataRetain);
   _mqttClient.print(payload);
   _mqttClient.endPublish();
-  _debugPrintf("[Vwire] Send V%d = %s", pin, value.c_str());
+  VWIRE_LOGF("[Vwire] Send V%d = %s", pin, value.c_str());
 }
 
 void VwireClass::virtualSendArray(uint8_t pin, float* values, int count) {
@@ -653,7 +555,7 @@ void VwireClass::syncAll() {
 void VwireClass::onVirtualReceive(uint8_t pin, PinHandler handler) {
   if (_pinHandlerCount >= VWIRE_MAX_HANDLERS) {
     _setError(VWIRE_ERR_HANDLER_FULL);
-    _debugPrint("[Vwire] Error: Max handlers reached!");
+    VWIRE_LOG("[Vwire] Error: Max handlers reached!");
     return;
   }
   
@@ -662,90 +564,12 @@ void VwireClass::onVirtualReceive(uint8_t pin, PinHandler handler) {
   _pinHandlers[_pinHandlerCount].active = true;
   _pinHandlerCount++;
   
-  _debugPrintf("[Vwire] Handler registered for V%d", pin);
+  VWIRE_LOGF("[Vwire] Handler registered for V%d", pin);
 }
 
 void VwireClass::onConnect(ConnectionHandler handler) { _connectHandler = handler; }
 void VwireClass::onDisconnect(ConnectionHandler handler) { _disconnectHandler = handler; }
 void VwireClass::onMessage(RawMessageHandler handler) { _messageHandler = handler; }
-
-// =============================================================================
-// NOTIFICATIONS
-// =============================================================================
-void VwireClass::notify(const char* message) {
-  if (!connected()) return;
-  char topic[96];
-  snprintf(topic, sizeof(topic), "vwire/%s/notify", _deviceId);
-  unsigned int len = strlen(message);
-  _mqttClient.beginPublish(topic, len, false);
-  _mqttClient.print(message);
-  _mqttClient.endPublish();
-  _debugPrintf("[Vwire] Notify: %s", message);
-}
-
-void VwireClass::alarm(const char* message) {
-  alarm(message, "default", 1, 50);
-}
-
-void VwireClass::alarm(const char* message, const char* sound) {
-  alarm(message, sound, 1, 50);
-}
-
-void VwireClass::alarm(const char* message, const char* sound, uint8_t priority) {
-  alarm(message, sound, priority, 50);
-}
-
-void VwireClass::alarm(const char* message, const char* sound, uint8_t priority, uint8_t volume) {
-  if (!connected()) return;
-  
-  // Generate unique alarm ID to prevent duplicates
-  static unsigned long lastAlarmId = 0;
-  unsigned long alarmId = millis();
-  if (alarmId == lastAlarmId) alarmId++; // Ensure uniqueness
-  lastAlarmId = alarmId;
-  if (volume > 100) volume = 100;
-  
-  char topic[96];
-  char buffer[VWIRE_JSON_BUFFER_SIZE];
-  
-  snprintf(topic, sizeof(topic), "vwire/%s/alarm", _deviceId);
-  snprintf(buffer, sizeof(buffer), 
-    "{\"type\":\"alarm\",\"message\":\"%s\",\"alarmId\":\"alarm_%lu\",\"sound\":\"%s\",\"priority\":%d,\"volume\":%d,\"timestamp\":%lu}", 
-    message, alarmId, sound, priority, volume, millis()
-  );
-  
-  unsigned int len = strlen(buffer);
-  _mqttClient.beginPublish(topic, len, false);
-  _mqttClient.print(buffer);
-  _mqttClient.endPublish();
-  _debugPrintf("[Vwire] Alarm: %s (sound: %s, priority: %d, volume: %d)", message, sound, priority, volume);
-}
-
-void VwireClass::email(const char* subject, const char* body) {
-  if (!connected()) return;
-  
-  char topic[96];
-  char buffer[VWIRE_JSON_BUFFER_SIZE];
-  
-  snprintf(topic, sizeof(topic), "vwire/%s/email", _deviceId);
-  snprintf(buffer, sizeof(buffer), "{\"subject\":\"%s\",\"body\":\"%s\"}", subject, body);
-  
-  unsigned int len = strlen(buffer);
-  _mqttClient.beginPublish(topic, len, false);
-  _mqttClient.print(buffer);
-  _mqttClient.endPublish();
-  _debugPrintf("[Vwire] Email: %s", subject);
-}
-
-void VwireClass::log(const char* message) {
-  if (!connected()) return;
-  char topic[96];
-  snprintf(topic, sizeof(topic), "vwire/%s/log", _deviceId);
-  unsigned int len = strlen(message);
-  _mqttClient.beginPublish(topic, len, false);
-  _mqttClient.print(message);
-  _mqttClient.endPublish();
-}
 
 // =============================================================================
 // DEVICE INFO
@@ -765,255 +589,6 @@ uint32_t VwireClass::getFreeHeap() {
 uint32_t VwireClass::getUptime() {
   return (millis() - _startTime) / 1000;
 }
-
-// =============================================================================
-// OTA
-// =============================================================================
-#if VWIRE_HAS_OTA
-void VwireClass::enableOTA(const char* hostname, const char* password) {
-  // Determine the OTA hostname with proper fallback chain:
-  // 1. Explicit hostname parameter passed to enableOTA()
-  // 2. User-set hostname via setHostname()
-  // 3. Default "vwire-<deviceId>"
-  String otaHostname;
-  if (hostname) {
-    otaHostname = String(hostname);
-    // If user didn't set a WiFi hostname, sync WiFi hostname to match OTA
-    if (strlen(_hostname) == 0) {
-      strncpy(_hostname, hostname, sizeof(_hostname) - 1);
-      _hostname[sizeof(_hostname) - 1] = '\0';
-      // Update WiFi hostname to match (if WiFi is already connected)
-      if (WiFi.status() == WL_CONNECTED) {
-        #if defined(VWIRE_BOARD_ESP32)
-        WiFi.setHostname(_hostname);
-        #elif defined(VWIRE_BOARD_ESP8266)
-        WiFi.hostname(_hostname);
-        #endif
-        _debugPrintf("[Vwire] WiFi hostname synced to OTA: %s", _hostname);
-      }
-    }
-  } else if (strlen(_hostname) > 0) {
-    otaHostname = String(_hostname);
-  } else {
-    otaHostname = "vwire-" + String(_deviceId).substring(0, 8);
-    // Store default so it's consistent everywhere
-    strncpy(_hostname, otaHostname.c_str(), sizeof(_hostname) - 1);
-    _hostname[sizeof(_hostname) - 1] = '\0';
-  }
-  ArduinoOTA.setHostname(otaHostname.c_str());
-  _debugPrintf("[Vwire] OTA hostname: %s", otaHostname.c_str());
-  
-  if (password) {
-    ArduinoOTA.setPassword(password);
-  }
-  
-  ArduinoOTA.onStart([this]() {
-    _debugPrint("[Vwire] OTA Update starting...");
-  });
-  
-  ArduinoOTA.onEnd([this]() {
-    _debugPrint("[Vwire] OTA Update complete!");
-  });
-  
-  ArduinoOTA.onProgress([this](unsigned int progress, unsigned int total) {
-    _debugPrintf("[Vwire] OTA Progress: %u%%", (progress / (total / 100)));
-  });
-  
-  ArduinoOTA.onError([this](ota_error_t error) {
-    _debugPrintf("[Vwire] OTA Error[%u]", error);
-  });
-  
-  ArduinoOTA.begin();
-  _otaEnabled = true;
-  _debugPrint("[Vwire] OTA enabled");
-}
-
-void VwireClass::handleOTA() {
-  if (_otaEnabled) ArduinoOTA.handle();
-}
-#endif
-
-// =============================================================================
-// CLOUD OTA (Firmware update from VWire server)
-// =============================================================================
-#if VWIRE_ENABLE_CLOUD_OTA
-
-void VwireClass::enableCloudOTA() {
-  _cloudOtaEnabled = true;
-  _debugPrint("[Vwire] Cloud OTA enabled");
-  
-  // If already connected, subscribe to OTA topic immediately
-  if (connected()) {
-    String otaTopic = _buildTopic("ota");
-    _mqttClient.subscribe(otaTopic.c_str(), 1);
-    _debugPrintf("[Vwire] Subscribed to: %s (Cloud OTA)", otaTopic.c_str());
-  }
-}
-
-bool VwireClass::isCloudOTAEnabled() {
-  return _cloudOtaEnabled;
-}
-
-void VwireClass::_ensureMqttForOTA() {
-  if (_mqttClient.connected()) return;
-  
-  _debugPrint("[Vwire] MQTT disconnected during OTA download, reconnecting...");
-  
-  // Quick reconnect attempts (3 tries, 1 second apart)
-  for (int i = 0; i < 3; i++) {
-    _setupClient();
-    if (_connectMQTT()) {
-      _debugPrint("[Vwire] MQTT reconnected for OTA status report");
-      return;
-    }
-    delay(1000);
-  }
-  
-  _debugPrint("[Vwire] MQTT reconnect failed - OTA status may not be reported");
-}
-
-void VwireClass::_publishOTAStatus(const char* updateId, const char* status, int progress, const char* error) {
-  if (!connected()) return;
-  
-  char topic[96];
-  char buffer[256];
-  
-  snprintf(topic, sizeof(topic), "vwire/%s/ota_status", _deviceId);
-  
-  if (error) {
-    snprintf(buffer, sizeof(buffer),
-      "{\"updateId\":\"%s\",\"status\":\"%s\",\"progress\":%d,\"error\":\"%s\",\"version\":\"%s\"}",
-      updateId, status, progress, error, VWIRE_VERSION);
-  } else {
-    snprintf(buffer, sizeof(buffer),
-      "{\"updateId\":\"%s\",\"status\":\"%s\",\"progress\":%d,\"version\":\"%s\"}",
-      updateId, status, progress, VWIRE_VERSION);
-  }
-  
-  _mqttClient.publish(topic, buffer, true);  // retained so server gets it
-  _debugPrintf("[Vwire] OTA Status: %s %d%%", status, progress);
-}
-
-void VwireClass::_handleCloudOTA(const char* payload) {
-  _debugPrint("[Vwire] Cloud OTA command received");
-  
-  // Parse JSON payload: {url, version, checksum, size, updateId}
-  StaticJsonDocument<512> doc;
-  DeserializationError err = deserializeJson(doc, payload);
-  
-  if (err) {
-    _debugPrintf("[Vwire] OTA JSON parse error: %s", err.c_str());
-    return;
-  }
-  
-  const char* url = doc["url"];
-  const char* version = doc["version"];
-  const char* checksum = doc["checksum"];
-  int size = doc["size"] | 0;
-  const char* updateId = doc["updateId"];
-  
-  if (!url || !updateId) {
-    _debugPrint("[Vwire] OTA command missing required fields");
-    return;
-  }
-  
-  _debugPrintf("[Vwire] OTA: url=%s", url);
-  _debugPrintf("[Vwire] OTA: version=%s size=%d", version ? version : "?", size);
-  
-  // Report downloading status
-  _publishOTAStatus(updateId, "downloading", 0);
-  
-  // Give MQTT time to send the status message
-  _mqttClient.loop();
-  delay(100);
-  
-  // Determine if HTTPS is needed
-  bool useHttps = (strncmp(url, "https", 5) == 0);
-  
-  // Create appropriate client for HTTP or HTTPS
-  WiFiClient plainClient;
-  WiFiClientSecure secureClient;
-  if (useHttps) {
-    secureClient.setInsecure();  // Skip certificate verification (firmware has its own checksum)
-    _debugPrint("[Vwire] OTA: Using HTTPS for firmware download");
-  }
-  WiFiClient& updateClient = useHttps ? (WiFiClient&)secureClient : plainClient;
-  
-  #if defined(VWIRE_BOARD_ESP32)
-  // ESP32: Use HTTPUpdate
-  httpUpdate.setLedPin(LED_BUILTIN, LOW);
-  httpUpdate.rebootOnUpdate(false);  // Don't auto-reboot, we want to send status first
-  
-  t_httpUpdate_return ret = httpUpdate.update(updateClient, url);
-  
-  // MQTT likely disconnected during the blocking download (keep-alive timeout).
-  // Reconnect so we can publish the OTA result status before rebooting.
-  _ensureMqttForOTA();
-  
-  switch (ret) {
-    case HTTP_UPDATE_FAILED:
-      _debugPrintf("[Vwire] OTA FAILED: (%d) %s", 
-        httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-      _publishOTAStatus(updateId, "failed", 0, httpUpdate.getLastErrorString().c_str());
-      _mqttClient.loop();
-      delay(200);
-      break;
-      
-    case HTTP_UPDATE_NO_UPDATES:
-      _debugPrint("[Vwire] OTA: No update available");
-      _publishOTAStatus(updateId, "failed", 0, "No update available");
-      _mqttClient.loop();
-      delay(200);
-      break;
-      
-    case HTTP_UPDATE_OK:
-      _debugPrint("[Vwire] OTA SUCCESS - Rebooting...");
-      _publishOTAStatus(updateId, "completed", 100);
-      _mqttClient.loop();
-      delay(1000);  // Extra time to ensure MQTT message is sent
-      ESP.restart();
-      break;
-  }
-  
-  #elif defined(VWIRE_BOARD_ESP8266)
-  // ESP8266: Use ESPhttpUpdate
-  ESPhttpUpdate.setLedPin(LED_BUILTIN, LOW);
-  ESPhttpUpdate.rebootOnUpdate(false);
-  
-  t_httpUpdate_return ret = ESPhttpUpdate.update(updateClient, url);
-  
-  // MQTT likely disconnected during the blocking download (keep-alive timeout).
-  // Reconnect so we can publish the OTA result status before rebooting.
-  _ensureMqttForOTA();
-  
-  switch (ret) {
-    case HTTP_UPDATE_FAILED:
-      _debugPrintf("[Vwire] OTA FAILED: (%d) %s",
-        ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
-      _publishOTAStatus(updateId, "failed", 0, ESPhttpUpdate.getLastErrorString().c_str());
-      _mqttClient.loop();
-      delay(200);
-      break;
-      
-    case HTTP_UPDATE_NO_UPDATES:
-      _debugPrint("[Vwire] OTA: No update available");
-      _publishOTAStatus(updateId, "failed", 0, "No update available");
-      _mqttClient.loop();
-      delay(200);
-      break;
-      
-    case HTTP_UPDATE_OK:
-      _debugPrint("[Vwire] OTA SUCCESS - Rebooting...");
-      _publishOTAStatus(updateId, "completed", 100);
-      _mqttClient.loop();
-      delay(1000);  // Extra time to ensure MQTT message is sent
-      ESP.restart();
-      break;
-  }
-  #endif
-}
-
-#endif // VWIRE_ENABLE_CLOUD_OTA
 
 // =============================================================================
 // HELPERS
@@ -1045,7 +620,7 @@ void VwireClass::_sendHeartbeat() {
   snprintf(topic, sizeof(topic), "vwire/%s/heartbeat", _deviceId);
   
   #if VWIRE_ENABLE_CLOUD_OTA
-  if (_cloudOtaEnabled) {
+  if (_otaFeature && _otaFeature->isCloudEnabled()) {
     snprintf(buffer, sizeof(buffer), 
       "{\"uptime\":%lu,\"heap\":%lu,\"rssi\":%d,\"ip\":\"%s\",\"fw\":\"%s\",\"ota\":true}",
       getUptime(), getFreeHeap(), getWiFiRSSI(), ipStr.c_str(), VWIRE_VERSION);
@@ -1068,105 +643,83 @@ void VwireClass::_setError(VwireError error) {
 }
 
 // =============================================================================
-// GPIO PIN CONTROL
+// ADDON SYSTEM
 // =============================================================================
 
-void VwireClass::enableGPIO() {
-  _gpioEnabled = true;
-}
+void VwireClass::addAddon(VwireAddon& addon) {
+  for (uint8_t i = 0; i < _addonCount; i++) {
+    if (_addons[i] == &addon) {
+      return;
+    }
+  }
 
-bool VwireClass::isGPIOEnabled() const {
-  return _gpioEnabled;
-}
-
-void VwireClass::gpioWrite(const char* pinName, int value) {
-  if (!_gpioEnabled) return;
-  _gpio.handleCommand(pinName, value);
-}
-
-int VwireClass::gpioRead(const char* pinName) {
-  if (!_gpioEnabled) return -1;
-  return _gpio.getPinValue(pinName);
-}
-
-bool VwireClass::addGPIOPin(const char* pinName, VwireGPIOMode mode,
-                             uint16_t readInterval) {
-  _gpioEnabled = true;  // auto-enable if user adds pins manually
-  return _gpio.addPin(pinName, mode, readInterval);
-}
-
-bool VwireClass::addGPIOPin(const char* pinName, uint8_t gpioNumber,
-                             VwireGPIOMode mode, uint16_t readInterval) {
-  _gpioEnabled = true;  // auto-enable if user adds pins manually
-  return _gpio.addPin(pinName, gpioNumber, mode, readInterval);
-}
-
-void VwireClass::gpioSend(const char* pinName, int value) {
-  if (!connected()) {
-    _setError(VWIRE_ERR_NOT_CONNECTED);
+  if (_addonCount >= VWIRE_MAX_ADDONS) {
+    VWIRE_LOG("[Vwire] Error: Max addons reached!");
     return;
   }
-  _publishGPIOValue(pinName, value);
-}
 
-VwireGPIOManager& VwireClass::getGPIO() {
-  return _gpio;
-}
+  _addons[_addonCount++] = &addon;
+  addon.onAttach(*this);
 
-void VwireClass::_handlePinConfig(const char* payload) {
-  int count = _gpio.applyConfig(payload);
-  if (count >= 0) {
-    _debugPrintf("[Vwire] GPIO pinconfig applied: %d pins configured", count);
-  } else {
-    _debugPrint("[Vwire] GPIO pinconfig: parse error");
-  }
-}
-
-void VwireClass::_publishGPIOValue(const char* pinName, int value) {
-  if (!connected()) return;
-  
-  // Build topic: vwire/{deviceId}/pin/{pinName}
-  char topic[96];
-  snprintf(topic, sizeof(topic), "vwire/%s/pin/%s", _deviceId, pinName);
-  
-  // Convert value to string
-  char valStr[16];
-  snprintf(valStr, sizeof(valStr), "%d", value);
-  
-  unsigned int len = strlen(valStr);
-  _mqttClient.beginPublish(topic, len, _settings.dataRetain);
-  _mqttClient.print(valStr);
-  _mqttClient.endPublish();
-  
-  _debugPrintf("[Vwire] GPIO send %s = %d", pinName, value);
-}
-
-// Static callback for GPIO manager polling
-void VwireClass::_gpioPublishCallback(const char* pinName, int value) {
-  if (_vwireInstance) {
-    _vwireInstance->_publishGPIOValue(pinName, value);
+  if (connected()) {
+    addon.onConnect();
   }
 }
 
 // =============================================================================
-// DEBUG
+// PUBLISH / SUBSCRIBE (for addons & advanced users)
 // =============================================================================
+
+bool VwireClass::publish(const char* topic, const char* payload, bool retain) {
+  if (!connected()) {
+    _setError(VWIRE_ERR_NOT_CONNECTED);
+    return false;
+  }
+  unsigned int len = strlen(payload);
+  _mqttClient.beginPublish(topic, len, retain);
+  _mqttClient.print(payload);
+  return _mqttClient.endPublish();
+}
+
+bool VwireClass::subscribe(const char* topic, uint8_t qos) {
+  if (!connected()) return false;
+  return _mqttClient.subscribe(topic, qos);
+}
+
+// =============================================================================
+// LOG / DEBUG
+// =============================================================================
+void VwireClass::onLog(VwireLogCallback cb) { _logCallback = cb; }
+void VwireClass::logTo(Stream& stream) {
+  _debugStream = &stream;
+  _debug = true;
+  _logCallback = nullptr;
+}
+void VwireClass::disableLog() {
+  _debug = false;
+  _logCallback = nullptr;
+}
 void VwireClass::setDebug(bool enable) { _debug = enable; }
 void VwireClass::setDebugStream(Stream& stream) { _debugStream = &stream; }
 
 void VwireClass::_debugPrint(const char* message) {
-  if (_debug && _debugStream) {
+  if (_logCallback) {
+    _logCallback(message);
+  } else if (_debug && _debugStream) {
     _debugStream->println(message);
   }
 }
 
 void VwireClass::_debugPrintf(const char* format, ...) {
-  if (_debug && _debugStream) {
-    char buffer[256];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
+  if (!_logCallback && !(_debug && _debugStream)) return;
+  char buffer[256];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buffer, sizeof(buffer), format, args);
+  va_end(args);
+  if (_logCallback) {
+    _logCallback(buffer);
+  } else {
     _debugStream->println(buffer);
   }
 }
@@ -1187,158 +740,10 @@ void VwireClass::printDebugInfo() {
   _debugStream->print(F("Free Heap: ")); _debugStream->print(getFreeHeap()); _debugStream->println(F(" bytes"));
   _debugStream->print(F("Uptime: ")); _debugStream->print(getUptime()); _debugStream->println(F(" sec"));
   _debugStream->print(F("Handlers: ")); _debugStream->println(_pinHandlerCount);
-  _debugStream->print(F("Reliable Delivery: ")); _debugStream->println(_settings.reliableDelivery ? "ENABLED" : "DISABLED");
-  if (_settings.reliableDelivery) {
+  _debugStream->print(F("Reliable Delivery: "));
+  _debugStream->println((_reliableDeliveryAddon && _reliableDeliveryAddon->isEnabled()) ? "ENABLED" : "DISABLED");
+  if (_reliableDeliveryAddon && _reliableDeliveryAddon->isEnabled()) {
     _debugStream->print(F("Pending Messages: ")); _debugStream->println(getPendingCount());
   }
   _debugStream->println(F("============================\n"));
-}
-
-// =============================================================================
-// RELIABLE DELIVERY
-// =============================================================================
-uint8_t VwireClass::getPendingCount() {
-  uint8_t count = 0;
-  for (int i = 0; i < VWIRE_MAX_PENDING_MESSAGES; i++) {
-    if (_pendingMessages[i].active) count++;
-  }
-  return count;
-}
-
-bool VwireClass::isDeliveryPending() {
-  return getPendingCount() > 0;
-}
-
-int VwireClass::_findPendingSlot() {
-  for (int i = 0; i < VWIRE_MAX_PENDING_MESSAGES; i++) {
-    if (!_pendingMessages[i].active) return i;
-  }
-  return -1;  // Queue full
-}
-
-void VwireClass::_removePending(const char* msgId) {
-  for (int i = 0; i < VWIRE_MAX_PENDING_MESSAGES; i++) {
-    if (_pendingMessages[i].active && strcmp(_pendingMessages[i].msgId, msgId) == 0) {
-      _pendingMessages[i].active = false;
-      _debugPrintf("[Vwire] Removed pending message: %s", msgId);
-      return;
-    }
-  }
-}
-
-void VwireClass::_handleAck(const char* msgId, bool success) {
-  _debugPrintf("[Vwire] ACK received: %s = %s", msgId, success ? "OK" : "FAIL");
-  
-  // Find the pending message
-  for (int i = 0; i < VWIRE_MAX_PENDING_MESSAGES; i++) {
-    if (_pendingMessages[i].active && strcmp(_pendingMessages[i].msgId, msgId) == 0) {
-      _pendingMessages[i].active = false;
-      
-      // Call delivery callback if set
-      if (_deliveryCallback) {
-        _deliveryCallback(msgId, success);
-      }
-      
-      if (success) {
-        _debugPrintf("[Vwire] ✓ Message %s delivered successfully", msgId);
-      } else {
-        _debugPrintf("[Vwire] ✗ Message %s delivery failed (server NACK)", msgId);
-      }
-      return;
-    }
-  }
-  
-  // Message not found in pending queue (might be duplicate ACK)
-  _debugPrintf("[Vwire] ACK for unknown message: %s (possibly duplicate)", msgId);
-}
-
-void VwireClass::_sendWithReliableDelivery(uint8_t pin, const String& value) {
-  // Find empty slot in pending queue
-  int slot = _findPendingSlot();
-  if (slot < 0) {
-    _setError(VWIRE_ERR_QUEUE_FULL);
-    _debugPrint("[Vwire] Error: Reliable delivery queue full!");
-    
-    // Notify callback of failure
-    if (_deliveryCallback) {
-      _deliveryCallback("queue_full", false);
-    }
-    return;
-  }
-  
-  // Generate unique message ID: deviceId_counter_millis
-  _msgIdCounter++;
-  snprintf(_pendingMessages[slot].msgId, sizeof(_pendingMessages[slot].msgId),
-           "%04X_%lu", (uint16_t)(_msgIdCounter & 0xFFFF), millis() % 10000);
-  
-  _pendingMessages[slot].pin = pin;
-  strncpy(_pendingMessages[slot].value, value.c_str(), sizeof(_pendingMessages[slot].value) - 1);
-  _pendingMessages[slot].value[sizeof(_pendingMessages[slot].value) - 1] = '\0';
-  _pendingMessages[slot].sentAt = millis();
-  _pendingMessages[slot].retries = 0;
-  _pendingMessages[slot].active = true;
-  
-  // Build payload with msgId: {"msgId":"xxx","pin":"V0","value":"123"}
-  char payload[VWIRE_JSON_BUFFER_SIZE];
-  snprintf(payload, sizeof(payload), 
-           "{\"msgId\":\"%s\",\"pin\":\"V%d\",\"value\":\"%s\"}",
-           _pendingMessages[slot].msgId, pin, _pendingMessages[slot].value);
-  
-  // Use /data topic for reliable messages (server will ACK these)
-  char topic[96];
-  snprintf(topic, sizeof(topic), "vwire/%s/data", _deviceId);
-  
-  unsigned int len = strlen(payload);
-  _mqttClient.beginPublish(topic, len, false);
-  _mqttClient.print(payload);
-  _mqttClient.endPublish();
-  
-  _debugPrintf("[Vwire] Reliable write V%d = %s (msgId: %s)", 
-               pin, value.c_str(), _pendingMessages[slot].msgId);
-}
-
-void VwireClass::_processRetries() {
-  unsigned long now = millis();
-  
-  for (int i = 0; i < VWIRE_MAX_PENDING_MESSAGES; i++) {
-    if (!_pendingMessages[i].active) continue;
-    
-    // Check if ACK timeout has passed
-    if (now - _pendingMessages[i].sentAt >= _settings.ackTimeout) {
-      if (_pendingMessages[i].retries < _settings.maxRetries) {
-        // Retry
-        _pendingMessages[i].retries++;
-        _pendingMessages[i].sentAt = now;
-        
-        // Rebuild and resend payload
-        char payload[VWIRE_JSON_BUFFER_SIZE];
-        snprintf(payload, sizeof(payload), 
-                 "{\"msgId\":\"%s\",\"pin\":\"V%d\",\"value\":\"%s\"}",
-                 _pendingMessages[i].msgId, _pendingMessages[i].pin, _pendingMessages[i].value);
-        
-        char topic[96];
-        snprintf(topic, sizeof(topic), "vwire/%s/data", _deviceId);
-        
-        unsigned int len = strlen(payload);
-        _mqttClient.beginPublish(topic, len, false);
-        _mqttClient.print(payload);
-        _mqttClient.endPublish();
-        
-        _debugPrintf("[Vwire] ↻ Retry %d/%d for message %s", 
-                     _pendingMessages[i].retries, _settings.maxRetries,
-                     _pendingMessages[i].msgId);
-      } else {
-        // Max retries exceeded - give up
-        _debugPrintf("[Vwire] ✗ Message %s dropped after %d retries", 
-                     _pendingMessages[i].msgId, _settings.maxRetries);
-        
-        // Call delivery callback with failure
-        if (_deliveryCallback) {
-          _deliveryCallback(_pendingMessages[i].msgId, false);
-        }
-        
-        _pendingMessages[i].active = false;
-      }
-    }
-  }
 }
