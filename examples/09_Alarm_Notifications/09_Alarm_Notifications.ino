@@ -75,9 +75,11 @@ void setup() {
   Serial.println("\n=== Vwire IOT Alarm Example ===\n");
   
   // Configure Vwire
-  Vwire.setDebug(true);
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);
+  // Optional logging:
+  // Vwire.logTo(Serial);  // Recommended: print library logs to Serial
+  // Vwire.onLog([](const char* msg) { Serial.println(msg); });
+  // Vwire.disableLog();   // Silent mode (default)
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // Connect to WiFi and cloud
   if (Vwire.begin(WIFI_SSID, WIFI_PASSWORD)) {

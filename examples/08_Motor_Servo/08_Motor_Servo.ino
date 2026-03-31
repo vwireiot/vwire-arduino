@@ -44,14 +44,6 @@ const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
 // =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-// Transport protocol options:
-// - VWIRE_TRANSPORT_TCP_SSL (port 8883) - MQTT over TLS/SSL - RECOMMENDED
-// - VWIRE_TRANSPORT_TCP     (port 1883) - Plain MQTT (for boards without SSL support)
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
-// =============================================================================
 // PIN DEFINITIONS
 // =============================================================================
 #if defined(ESP32)
@@ -70,8 +62,7 @@ const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
   #define SERVO2_PIN   33
   
   // PWM channels for ESP32
-  #define PWM_CHANNEL_A  0
-  #define PWM_CHANNEL_B  1
+  // ESP32 3.x: channels auto-assigned, use pin-based API
   
 #elif defined(ESP8266)
   // Motor A
@@ -126,11 +117,9 @@ void setupMotors() {
   pinMode(MOTOR_B_IN2, OUTPUT);
   
   #if defined(ESP32)
-    // Setup PWM channels for ESP32
-    ledcSetup(PWM_CHANNEL_A, 5000, 8);
-    ledcSetup(PWM_CHANNEL_B, 5000, 8);
-    ledcAttachPin(MOTOR_A_EN, PWM_CHANNEL_A);
-    ledcAttachPin(MOTOR_B_EN, PWM_CHANNEL_B);
+    // ESP32 3.x pin-based LEDC API (channel auto-assigned)
+    ledcAttach(MOTOR_A_EN, 5000, 8);
+    ledcAttach(MOTOR_B_EN, 5000, 8);
   #else
     pinMode(MOTOR_A_EN, OUTPUT);
     pinMode(MOTOR_B_EN, OUTPUT);
@@ -160,7 +149,7 @@ void setMotorA(int speed) {
   
   // Set speed
   #if defined(ESP32)
-    ledcWrite(PWM_CHANNEL_A, pwm);
+    ledcWrite(MOTOR_A_EN, pwm);
   #else
     analogWrite(MOTOR_A_EN, pwm);
   #endif
@@ -186,7 +175,7 @@ void setMotorB(int speed) {
   }
   
   #if defined(ESP32)
-    ledcWrite(PWM_CHANNEL_B, pwm);
+    ledcWrite(MOTOR_B_EN, pwm);
   #else
     analogWrite(MOTOR_B_EN, pwm);
   #endif
@@ -263,8 +252,8 @@ VWIRE_RECEIVE(V1) {
 VWIRE_RECEIVE(V2) {
   // Joystick sends X,Y as comma-separated values
   if (param.getArraySize() >= 2) {
-    int x = param.getArrayItemInt(0);  // Left/Right
-    int y = param.getArrayItemInt(1);  // Forward/Backward
+    int x = param.getArrayInt(0);  // Left/Right
+    int y = param.getArrayInt(1);  // Forward/Backward
     
     Serial.printf("Joystick: X=%d, Y=%d\n", x, y);
     joystickToDifferential(x, y);
@@ -334,10 +323,11 @@ void setup() {
   Serial.println("Servos initialized");
   
   // Configure Vwire (uses default server: mqtt.vwire.io)
-  Vwire.setDebug(true);
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);  // Use Device ID for MQTT topics
-  Vwire.setTransport(TRANSPORT);
+  // Optional logging:
+  // Vwire.logTo(Serial);  // Recommended: print library logs to Serial
+  // Vwire.onLog([](const char* msg) { Serial.println(msg); });
+  // Vwire.disableLog();   // Silent mode (default)
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
   // Connect (handlers auto-registered via VWIRE_RECEIVE macros)
   Vwire.begin(WIFI_SSID, WIFI_PASSWORD);

@@ -8,14 +8,14 @@
  * - ESP32, ESP8266/NodeMCU, Arduino WiFi, RP2040-W, etc.
  * 
  * Features demonstrated:
- * - enableGPIO() — automatic hardware pin management
- * - Cloud-configured pin modes (OUTPUT, INPUT, INPUT_PULLUP, PWM)
+ *   - Simple GPIO setup with Vwire.enableGPIO()
+ *   - Cloud-configured pin modes (OUTPUT, INPUT, INPUT_PULLUP, PWM)
  * - Automatic reading of input pins at configurable intervals
  * - Pin names (D0, D1, ...) map directly to board labels
  * - On ESP8266/NodeMCU: D4 automatically maps to GPIO 2 (built-in LED)
  * - On ESP32: D4 maps to GPIO 4
  * 
- * Smart Write (Blynk-style):
+ * Smart Write:
  * OUTPUT pins automatically adapt based on the value sent:
  *   0 or 1   → digitalWrite (clean digital on/off)
  *   2 – 255  → analogWrite / PWM (proportional duty cycle)
@@ -60,32 +60,19 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 const char* AUTH_TOKEN    = "YOUR_AUTH_TOKEN";
 const char* DEVICE_ID     = "YOUR_DEVICE_ID";  // VW-XXXXXX (OEM) or VU-XXXXXX (user-created)
 
-// =============================================================================
-// TRANSPORT CONFIGURATION
-// =============================================================================
-// VWIRE_TRANSPORT_TCP_SSL (port 8883) - Encrypted, RECOMMENDED
-// VWIRE_TRANSPORT_TCP     (port 1883) - Plain TCP, use if SSL not supported
-const VwireTransport TRANSPORT = VWIRE_TRANSPORT_TCP_SSL;
-
 void setup() {
   Serial.begin(115200);
   delay(100);
   
   Serial.println("\n=== Vwire IOT — Digital Pin Control Example ===\n");
   
-  // 1. Configure connection
-  Vwire.config(AUTH_TOKEN);
-  Vwire.setDeviceId(DEVICE_ID);  // Device ID used for MQTT topics (required)
-  Vwire.setTransport(TRANSPORT);
+  // 1. Configure connection (TLS by default)
+  Vwire.config(AUTH_TOKEN, DEVICE_ID);
   
-  // 2. Enable GPIO management — this tells the library to:
-  //    • Subscribe to the "pinconfig" MQTT topic
-  //    • Automatically set up hardware pin modes from cloud settings
-  //    • Poll input pins and publish state changes
-  //    • Apply incoming commands to output pins (D* topics)
+  // 2. Enable GPIO support
   Vwire.enableGPIO();
   
-  // 3. (Optional) Pre-register pins locally for development / offline use.
+  // (Optional) Pre-register pins locally for development / offline use.
   //    Pin names map directly to board labels — no GPIO numbers needed!
   //    On ESP8266/NodeMCU: D4 → GPIO 2 (built-in LED) automatically.
   //    When the device connects, the cloud config overrides these.
@@ -93,10 +80,12 @@ void setup() {
   // Vwire.addGPIOPin("D4",  VWIRE_GPIO_INPUT_PULLUP, 200);      // Button (read every 200ms)
   // Vwire.addGPIOPin("D5",  VWIRE_GPIO_OUTPUT);                 // LED
   
-  // 4. Enable debug output (optional)
-  Vwire.setDebug(true);
+  // Optional logging:
+  // Vwire.logTo(Serial);  // Recommended: print library logs to Serial
+  // Vwire.onLog([](const char* msg) { Serial.println(msg); });
+  // Vwire.disableLog();   // Silent mode (default)
   
-  // 5. Connect to WiFi and Vwire
+  // Connect to WiFi and Vwire
   Serial.println("Connecting...");
   if (Vwire.begin(WIFI_SSID, WIFI_PASSWORD)) {
     Serial.println("Connection successful!");
@@ -111,15 +100,15 @@ void setup() {
 VWIRE_CONNECTED() {
   Serial.println("Connected to Vwire IOT!");
   Serial.print("GPIO pins managed: ");
-  Serial.println(Vwire.getGPIO().getPinCount());
+  Serial.println(Vwire.getGPIOPinCount());
 }
 
 void loop() {
   Vwire.run();  // Handles MQTT, heartbeat, and GPIO polling automatically
   
   // You can also read/write GPIO pins in your sketch:
-  // int btn = Vwire.gpioRead("D4");    // Last polled value
-  // Vwire.gpioWrite("D5", HIGH);       // Immediate digital write
-  // Vwire.gpioWrite("D5", 128);        // PWM — ~50% duty cycle
-  // Vwire.gpioSend("D2", 1);           // Publish to cloud
+  // int btn = Vwire.gpioRead("D4");   // Last polled value
+  // Vwire.gpioWrite("D5", HIGH);      // Immediate digital write
+  // Vwire.gpioWrite("D5", 128);       // PWM — ~50% duty cycle
+  // Vwire.gpioSend("D2", 1);          // Publish to cloud
 }

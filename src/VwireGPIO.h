@@ -1,16 +1,30 @@
 /*
- * Vwire IOT Arduino Library - GPIO Pin Manager
+ * Vwire IOT Arduino Library - GPIO Addon
  * 
- * Handles direct digital and analog pin control from the VWire cloud platform.
- * Supports auto-read of inputs, command-driven writes, and runtime pin
- * configuration via MQTT pinconfig messages.
+ * Optional addon for direct digital and analog pin control from the VWire
+ * cloud platform.  Include this header and instantiate VwireGPIO only when
+ * you need cloud-managed GPIO pins.  If you don't include it, the linker
+ * strips the entire module — zero flash cost.
  * 
  * Pin naming convention (matches cloud platform):
  *   D0–D99   → Digital pins (auto-resolved to board-specific GPIO)
  *             ESP8266/NodeMCU: D0→GPIO16, D1→GPIO5, D4→GPIO2, etc.
  *             ESP32/Others: Dx → GPIO x
  *   A0–A15   → Analog pins (auto-resolved via Arduino A0 mapping)
- *   V0–V255  → Virtual pins (handled by existing VirtualPin system)
+ * 
+ * Usage:
+ *   #include <Vwire.h>
+ *   #include <VwireGPIO.h>
+ *
+ *   VwireGPIO gpio;
+ *
+ *   void setup() {
+ *     Vwire.config(AUTH_TOKEN, DEVICE_ID);
+ *     gpio.begin(Vwire);           // register as addon
+ *     gpio.addPin("D4", VWIRE_GPIO_OUTPUT);  // optional manual pin
+ *     Vwire.begin(WIFI_SSID, WIFI_PASS);
+ *   }
+ *   void loop() { Vwire.run(); }   // GPIO polling is automatic
  * 
  * Copyright (c) 2026 Vwire IOT
  * Website: https://vwire.io
@@ -22,6 +36,9 @@
 
 #include <Arduino.h>
 #include "VwireConfig.h"
+
+// Forward declaration (full definition in Vwire.h)
+class VwireClass;
 
 // =============================================================================
 // GPIO CONFIGURATION DEFAULTS
@@ -57,21 +74,13 @@
  * @brief Pin mode types matching the cloud platform definition.
  * String values used in MQTT JSON: "OUTPUT", "INPUT", "INPUT_PULLUP", "PWM", "ANALOG_INPUT"
  *
- * Smart write behaviour (Blynk-style, applies to OUTPUT and PWM modes):
+ * Smart write behaviour (applies to OUTPUT and PWM modes):
  *   value 0   → digitalWrite(LOW)   — pin fully OFF
  *   value 1   → digitalWrite(HIGH)  — pin fully ON
  *   value 2-255 → analogWrite / PWM  — proportional duty cycle
- * The library handles all platform differences (ESP32 ledc, ESP8266
- * PWMRANGE scaling, standard Arduino analogWrite) automatically.
+ * The shared enum is declared in VwireConfig.h so sketches can use GPIO
+ * helpers from Vwire.h without including this header.
  */
-typedef enum {
-  VWIRE_GPIO_OUTPUT       = 0,   ///< Digital/PWM output (auto: 0-1 digital, 2-255 PWM)
-  VWIRE_GPIO_INPUT        = 1,   ///< Digital input (floating)
-  VWIRE_GPIO_INPUT_PULLUP = 2,   ///< Digital input with internal pull-up
-  VWIRE_GPIO_PWM          = 3,   ///< PWM output (alias for OUTPUT, kept for compat)
-  VWIRE_GPIO_ANALOG_INPUT = 4,   ///< Analog input (ADC reading)
-  VWIRE_GPIO_DISABLED     = 255  ///< Pin not managed
-} VwireGPIOMode;
 
 // =============================================================================
 // GPIO PIN FLAGS
@@ -98,46 +107,40 @@ struct VwireGPIOPin {
 };
 
 // =============================================================================
-// GPIO MANAGER CLASS
+// VwireGPIO — STANDALONE ADDON
 // =============================================================================
 
 /**
- * @brief Manages direct GPIO pin control for the VWire platform
- * 
- * The GPIO manager processes pinconfig messages from the server, sets up
- * hardware pin modes, automatically reads input pins at configured intervals,
- * and applies command values to output pins.
- * 
+ * @brief Cloud-managed GPIO pin addon for VWire
+ *
+ * Extends VwireAddon to receive MQTT pinconfig and Dx/Ax commands.
+ * Polls input pins automatically during Vwire.run().
+ *
  * @code
- * // In sketch — just enable GPIO; everything else is automatic:
- * Vwire.enableGPIO();
- * 
- * // Optional: manually add a pin without waiting for cloud config
- * Vwire.gpioWrite("D13", HIGH);
+ * #include <Vwire.h>
+ * #include <VwireGPIO.h>
+ * VwireGPIO gpio;
+ * void setup() {
+ *   Vwire.config(TOKEN, DEVICE_ID);
+ *   gpio.begin(Vwire);
+ *   Vwire.begin(ssid, pass);
+ * }
+ * void loop() { Vwire.run(); }
  * @endcode
  */
-class VwireGPIOManager {
+class VwireGPIO : public VwireAddon {
 public:
-  /** @brief Constructor — initializes all slots as inactive */
-  VwireGPIOManager();
-
-  // =========================================================================
-  // CONFIGURATION
-  // =========================================================================
+  VwireGPIO();
 
   /**
-   * @brief Apply a pinconfig JSON payload from the server.
-   * Expected format:
-   *   {"pins":[{"pin":"D4","mode":"OUTPUT"},
-   *            {"pin":"A0","mode":"ANALOG_INPUT","interval":500}]}
-   *
-   * The hardware GPIO number is automatically resolved from the pin name
-   * using platform-specific mapping (e.g., D4→GPIO2 on ESP8266).
-   *
-   * @param jsonPayload  Null-terminated JSON string
-   * @return Number of pins successfully configured
+   * @brief Attach this addon to the Vwire core
+   * @param vwire  Reference to the global VwireClass instance
    */
-  int applyConfig(const char* jsonPayload);
+  void begin(VwireClass& vwire);
+
+  // =========================================================================
+  // PIN CONFIGURATION
+  // =========================================================================
 
   /**
    * @brief Add or update a GPIO pin (auto-resolves hardware GPIO from name)
@@ -152,7 +155,7 @@ public:
   /**
    * @brief Add or update a GPIO pin with explicit hardware GPIO number
    * @param pinName  Cloud pin name (e.g., "D5", "A0")
-   * @param gpioNumber  Explicit physical GPIO number (overrides auto-resolve)
+   * @param gpioNumber  Explicit physical GPIO number
    * @param mode  Pin mode
    * @param readInterval  Read interval for input modes (ms, 0 = use default)
    * @return true if added successfully
@@ -162,45 +165,43 @@ public:
 
   /**
    * @brief Remove a managed pin by name
-   * @param pinName  Cloud pin name (e.g., "D5")
    * @return true if found and removed
    */
   bool removePin(const char* pinName);
 
-  /**
-   * @brief Remove all managed pins
-   */
+  /** @brief Remove all managed pins */
   void clearAll();
 
   // =========================================================================
-  // RUNTIME
+  // PIN I/O
   // =========================================================================
 
   /**
-   * @brief Poll input pins and publish changed values.
-   * Call this from the main loop (Vwire.run() calls it automatically).
-   *
-   * @param publishFn  Function pointer that publishes a value to the cloud.
-   *                   Signature: void fn(const char* pinName, int value)
+   * @brief Write a value to a managed output pin
+   * @param pinName Pin name (e.g., "D13")
+   * @param value   0/1 for digital, 0-255 for PWM
    */
-  typedef void (*PublishGPIOFn)(const char* pinName, int value);
-  void poll(PublishGPIOFn publishFn);
+  void write(const char* pinName, int value);
 
   /**
-   * @brief Handle an incoming command for a GPIO pin.
-   * Called when a message arrives on vwire/{id}/cmd/D* or /cmd/A*.
-   *
-   * @param pinName  Pin name from the topic (e.g., "D13")
-   * @param value    Value from the payload (e.g., "1", "128")
-   * @return true if the pin was found and written
+   * @brief Read current cached value of a managed pin
+   * @param pinName Pin name (e.g., "D2", "A0")
+   * @return Last read value, or -1 if pin not managed
    */
-  bool handleCommand(const char* pinName, int value);
+  int read(const char* pinName) const;
+
+  /**
+   * @brief Publish a GPIO pin value to the cloud
+   * @param pinName Pin name (e.g., "D5", "A0")
+   * @param value   Value to publish
+   */
+  void send(const char* pinName, int value);
 
   // =========================================================================
   // QUERY
   // =========================================================================
 
-  /** @brief Get number of actively managed pins */
+  /** @brief Number of actively managed pins */
   uint8_t getPinCount() const;
 
   /** @brief Check if a pin name is managed */
@@ -209,37 +210,32 @@ public:
   /** @brief Get current value of a managed pin (-1 if not found) */
   int getPinValue(const char* pinName) const;
 
+  // =========================================================================
+  // ADDON LIFECYCLE (called automatically by VwireClass)
+  // =========================================================================
+  void onAttach(VwireClass& vwire) override;
+  void onConnect() override;
+  bool onMessage(const char* topic, const char* payload) override;
+  void onRun() override;
+
 private:
+  VwireClass* _vwire;
+
+  // Pin storage
   VwireGPIOPin _pins[VWIRE_MAX_GPIO_PINS];
   uint8_t _count;
 
-  /** @brief Find slot index by name (-1 if not found) */
   int _findPin(const char* pinName) const;
-
-  /** @brief Find first empty slot (-1 if full) */
   int _findFreeSlot() const;
-
-  /** @brief Convert mode string ("OUTPUT", etc.) to enum */
   static VwireGPIOMode _parseMode(const char* modeStr);
-
-  /**
-   * @brief Resolve pin name to hardware GPIO number.
-   * Uses platform-specific mapping:
-   *   ESP8266: D0-D10 map to NodeMCU GPIO numbers (D4→GPIO2, etc.)
-   *   ESP32/Others: Dx → x, Ax → analogInputToDigitalPin(x)
-   * @param pinName  Pin name (e.g., "D4", "A0")
-   * @return Hardware GPIO number, or 255 if unresolvable
-   */
   static uint8_t _resolvePinNumber(const char* pinName);
-
-  /** @brief Apply Arduino pinMode() for a slot */
   void _applyHardwareMode(VwireGPIOPin& pin);
-
-  /** @brief Read a pin's current hardware value */
   int _readHardware(const VwireGPIOPin& pin) const;
-
-  /** @brief Write a value to a pin's hardware */
   void _writeHardware(VwireGPIOPin& pin, int value);
+
+  int _applyConfig(const char* jsonPayload);
+  void _publishValue(const char* pinName, int value);
+  bool handleCommand(const char* pinName, int value);
 };
 
 #endif // VWIRE_GPIO_H
